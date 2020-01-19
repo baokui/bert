@@ -1,7 +1,7 @@
 mkdir log/log_textseg
 Date=20200104
 for((Date=20200102;Date<=20200106;Date++))
-done
+do
 for((i=0;i<24;i++))
 do
 if [ $i -gt 9 ]; then
