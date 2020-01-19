@@ -7,7 +7,7 @@ def textSeg(sourefile,targetfile):
     f_r = open(sourefile,'r')
     f_w = open(targetfile,'w+')
     for line in f_r:
-        line = line.strip()
+        line = line.strip().lower()
         s = line.split('\t')
         if len(s)!=3:
             continue
