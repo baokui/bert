@@ -1,5 +1,4 @@
 mkdir log/log_textseg
-Date=20200104
 for((Date=20200102;Date<=20200106;Date++))
 do
 for((i=0;i<24;i++))
@@ -9,7 +8,7 @@ Hour=$i
 else
 Hour=0$i
 fi
-sourcefile=../../data/data_inputs/$Date/$Hour/part-00001
+sourcefile=../../data/data_inputs/$Date/$Hour/
 b=$(( $i % 8 ))
 if [ $b = 7 ]
 then
