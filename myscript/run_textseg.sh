@@ -9,7 +9,7 @@ Hour=$i
 else
 Hour=0$i
 fi
-sourcefile=../../data/data_inputs/$Date/$Hour/
+sourcefile=../../data/data_inputs/$Date/$Hour
 b=$(( $i % 8 ))
 if [ $b = 7 ]
 then

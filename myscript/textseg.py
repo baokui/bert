@@ -5,8 +5,8 @@ import os
 import sys
 def textSeg(sourefile0,targetfile0):
     for p in range(5):
-        sourefile = sourefile0+'part-0000'+str(p)
-        targetfile = targetfile0+'part-0000'+str(p)
+        sourefile = sourefile0+'/part-0000'+str(p)
+        targetfile = targetfile0+'/part-0000'+str(p)
         f_r = open(sourefile,'r')
         f_w = open(targetfile,'w+')
         for line in f_r:
