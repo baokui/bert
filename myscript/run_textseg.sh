@@ -1,4 +1,4 @@
-sleep 3h
+#sleep 3h
 mkdir log/log_textseg
 for((Date=20200102;Date<=20200106;Date++))
 do
