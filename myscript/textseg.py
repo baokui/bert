@@ -5,10 +5,11 @@ import os
 import sys
 def textSeg(sourefile0,targetfile0):
     targetfile = targetfile0 + '/sents.txt'
+    f_w = open(targetfile, 'w+')
+    k = 0
     for p in range(5):
         sourefile = sourefile0+'/part-0000'+str(p)
         f_r = open(sourefile,'r')
-        f_w = open(targetfile,'w+')
         for line in f_r:
             line = line.strip().lower()
             s = line.split('\t')
@@ -16,9 +17,12 @@ def textSeg(sourefile0,targetfile0):
                 continue
             words = " ".join(jieba.lcut(s[2], HMM=True))
             f_w.write(words+'\n')
-        f_w.close()
+            k+=1
+            if k%10000==0:
+                print('write d% lines'%k)
         f_r.close()
         #os.remove(sourefile)
+    f_w.close()
 def main(sourefile):
     if not os.path.exists(sourefile+'-seg'):
         os.mkdir(sourefile+'-seg')
