@@ -20,7 +20,8 @@ def textSeg(sourefile0,targetfile0):
         f_r.close()
         #os.remove(sourefile)
 def main(sourefile):
-    os.mkdir(sourefile+'-seg')
+    if not os.path.exists(sourefile+'-seg'):
+        os.mkdir(sourefile+'-seg')
     textSeg(sourefile,sourefile+'-seg')
     #os.remove(sourefile)
 if __name__=='__main__':
