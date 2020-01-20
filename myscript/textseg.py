@@ -19,7 +19,7 @@ def textSeg(sourefile0,targetfile0):
             f_w.write(words+'\n')
             k+=1
             if k%10000==0:
-                print('write d% lines'%k)
+                print('write %d lines'%k)
         f_r.close()
         #os.remove(sourefile)
     f_w.close()
