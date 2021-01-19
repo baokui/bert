@@ -375,7 +375,7 @@ class ColaProcessor(DataProcessor):
 
 class LabelClass(DataProcessor):
   """Processor for the MRPC data set (GLUE version)."""
-  def _read_txt(path):
+  def _read_txt(self,path):
     with open(path,'r',encoding='utf-8') as f:
         lines = f.read().strip().split('\n')
         lines = [t.split('\t') for t in lines]
