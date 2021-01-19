@@ -925,7 +925,8 @@ def main(task_name,inputStr):
 
 if __name__ == "__main__":
   task_name, inputStr = sys.argv[1:3]
-  main(task_name,inputStr)
+  r = main(task_name,inputStr)
+  print(r)
   # flags.mark_flag_as_required("data_dir")
   # flags.mark_flag_as_required("task_name")
   # flags.mark_flag_as_required("vocab_file")
