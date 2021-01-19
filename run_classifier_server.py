@@ -25,6 +25,7 @@ import modeling
 import optimization
 import tokenization
 import tensorflow as tf
+import sys
 
 flags = tf.flags
 
@@ -847,17 +848,21 @@ def get_model(max_seq_length, L, D_map, batch_size=64, is_training=True,use_foca
     Acc = Acc / len(L)
     train_op = tf.train.AdamOptimizer(learning_rate).minimize(Loss)
     return input,input_mask,segment_ids, Y, Loss, Acc, train_op, Predict
-def main(_):
+def main(task_name,inputStr):
   import json
+  FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
+  FLAGS.task_name = task_name
+  FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
+  FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
+  FLAGS.output_dir = "model/bert/"+task_name
   path_map = os.path.join(FLAGS.data_dir, 'map_index.json')
   path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
   D_map = json.load(open(path_map, 'r'))
   D_alpha0 = json.load(open(path_alpha, 'r'))
   D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
-  path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
   L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
   L = FLAGS.task_name
-  idx0 = L0.index(L)
+  D_inv_map = {D_map[L][k]:k for k in D_map[L]}
   tf.logging.set_verbosity(tf.logging.INFO)
   is_training = False
   processors = {
@@ -870,14 +875,6 @@ def main(_):
       '表达者性别倾向p0':LabelClass,
       '文字风格':LabelClass
   }
-
-  tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
-                                                FLAGS.init_checkpoint)
-
-  if not FLAGS.do_train and not FLAGS.do_eval and not FLAGS.do_predict:
-    raise ValueError(
-        "At least one of `do_train`, `do_eval` or `do_predict' must be True.")
-
   bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
 
   if FLAGS.max_seq_length > bert_config.max_position_embeddings:
@@ -905,7 +902,7 @@ def main(_):
   input_mask = tf.placeholder(tf.int32, shape=[None, FLAGS.max_seq_length], name='input_mask')
   segment_ids = tf.placeholder(tf.int32, shape=[None, FLAGS.max_seq_length], name='segment_ids')
   num_labels = len(D_map[L])
-  labels = [str(i) for i in range(len(D_map))]
+  labels = tf.placeholder(tf.int32, shape=[None,], name='labels')
   loss, per_example_loss, logits, probabilities = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
                  labels, num_labels, use_one_hot_embeddings=False)
   saver = tf.train.Saver(max_to_keep=None)
@@ -913,7 +910,7 @@ def main(_):
   session.run(tf.global_variables_initializer())
   init_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
   saver.restore(session, init_checkpoint)
-  example = InputExample(guid='guid', text_a=s[0], label='0')
+  example = InputExample(guid='guid', text_a=inputStr, label='0')
   feature = convert_single_example(10, example, label_list,FLAGS.max_seq_length, tokenizer)
   X_input_ids = feature.input_ids
   X_segment_ids = feature.segment_ids
@@ -921,12 +918,17 @@ def main(_):
   feed_dict = {input_ids: [X_input_ids], segment_ids: [X_segment_ids],
                input_mask: [X_input_mask]}
   p = session.run(probabilities,feed_dict=feed_dict)
+  p = list(p[0])
+  result = {D_inv_map[i]:p[i] for i in range(len(p))}
+  return result
 
 
 if __name__ == "__main__":
-  flags.mark_flag_as_required("data_dir")
-  flags.mark_flag_as_required("task_name")
-  flags.mark_flag_as_required("vocab_file")
-  flags.mark_flag_as_required("bert_config_file")
-  flags.mark_flag_as_required("output_dir")
-  tf.app.run()
+  task_name, inputStr = sys.argv[1:3]
+  main(task_name,inputStr)
+  # flags.mark_flag_as_required("data_dir")
+  # flags.mark_flag_as_required("task_name")
+  # flags.mark_flag_as_required("vocab_file")
+  # flags.mark_flag_as_required("bert_config_file")
+  # flags.mark_flag_as_required("output_dir")
+  # tf.app.run()
