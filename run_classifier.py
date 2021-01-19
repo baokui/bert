@@ -373,6 +373,48 @@ class ColaProcessor(DataProcessor):
           InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
     return examples
 
+class LabelClass(DataProcessor):
+  """Processor for the MRPC data set (GLUE version)."""
+  def _read_txt(path):
+    with open(path,'r',encoding='utf-8') as f:
+        lines = f.read().strip().split('\n')
+        lines = [t.split('\t') for t in lines]
+    return lines
+  def get_train_examples(self, data_dir,idx_label):
+    """See base class."""
+    return self._create_examples(
+        self._read_txt(os.path.join(data_dir, "train.txt")), "train",idx_label)
+
+  def get_dev_examples(self, data_dir,idx_label):
+    """See base class."""
+    return self._create_examples(
+        self._read_txt(os.path.join(data_dir, "dev.txt")), "dev",idx_label)
+
+  def get_test_examples(self, data_dir,idx_label):
+    """See base class."""
+    return self._create_examples(
+        self._read_txt(os.path.join(data_dir, "test.txt")), "test",idx_label)
+
+  def get_labels(self,D_label):
+    """See base class."""
+    return [str(i) for i in range(len(D_label))]
+
+  def _create_examples(self, lines, set_type, idx_label):
+    """Creates examples for the training and dev sets."""
+    examples = []
+    for (i, line) in enumerate(lines):
+      if i == 0:
+        continue
+      guid = "%s-%s" % (set_type, i)
+      text_a = tokenization.convert_to_unicode(line[0])
+      text_b = None
+      if set_type == "test":
+        label = "0"
+      else:
+        label = tokenization.convert_to_unicode(line[idx_label])
+      examples.append(
+          InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+    return examples
 
 def convert_single_example(ex_index, example, label_list, max_seq_length,
                            tokenizer):
@@ -781,6 +823,16 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
 
 
 def main(_):
+  import json
+  path_map = os.path.join(FLAGS.data_dir, 'map_index.json')
+  path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
+  D_map = json.load(open(path_map, 'r'))
+  D_alpha0 = json.load(open(path_alpha, 'r'))
+  D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
+  path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
+  L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
+  L = FLAGS.task_name
+  idx0 = L0.index(L)
   tf.logging.set_verbosity(tf.logging.INFO)
 
   processors = {
@@ -788,6 +840,10 @@ def main(_):
       "mnli": MnliProcessor,
       "mrpc": MrpcProcessor,
       "xnli": XnliProcessor,
+      "使用场景P0":LabelClass,
+      "表达对象P0":LabelClass,
+      '表达者性别倾向P0':LabelClass,
+      '文字风格':LabelClass
   }
 
   tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
@@ -814,7 +870,7 @@ def main(_):
 
   processor = processors[task_name]()
 
-  label_list = processor.get_labels()
+  label_list = processor.get_labels(D_alpha[L])
 
   tokenizer = tokenization.FullTokenizer(
       vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
@@ -839,7 +895,7 @@ def main(_):
   num_train_steps = None
   num_warmup_steps = None
   if FLAGS.do_train:
-    train_examples = processor.get_train_examples(FLAGS.data_dir)
+    train_examples = processor.get_train_examples(FLAGS.data_dir,idx_label=idx0+1)
     num_train_steps = int(
         len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
     num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
@@ -880,7 +936,7 @@ def main(_):
     estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
 
   if FLAGS.do_eval:
-    eval_examples = processor.get_dev_examples(FLAGS.data_dir)
+    eval_examples = processor.get_dev_examples(FLAGS.data_dir,idx_label=idx0+1)
     num_actual_eval_examples = len(eval_examples)
     if FLAGS.use_tpu:
       # TPU requires a fixed batch size for all batches, therefore the number
@@ -926,7 +982,7 @@ def main(_):
         writer.write("%s = %s\n" % (key, str(result[key])))
 
   if FLAGS.do_predict:
-    predict_examples = processor.get_test_examples(FLAGS.data_dir)
+    predict_examples = processor.get_test_examples(FLAGS.data_dir,idx_label=idx0+1)
     num_actual_predict_examples = len(predict_examples)
     if FLAGS.use_tpu:
       # TPU requires a fixed batch size for all batches, therefore the number
