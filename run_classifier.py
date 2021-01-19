@@ -840,9 +840,9 @@ def main(_):
       "mnli": MnliProcessor,
       "mrpc": MrpcProcessor,
       "xnli": XnliProcessor,
-      "使用场景P0":LabelClass,
-      "表达对象P0":LabelClass,
-      '表达者性别倾向P0':LabelClass,
+      "使用场景p0":LabelClass,
+      "表达对象p0":LabelClass,
+      '表达者性别倾向p0':LabelClass,
       '文字风格':LabelClass
   }
 
