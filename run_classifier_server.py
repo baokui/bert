@@ -854,7 +854,7 @@ def main(task_name,inputStr):
   FLAGS.task_name = task_name
   FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
   FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
-  FLAGS.output_dir = "model/bert/"+task_name
+  FLAGS.output_dir = "model/label/"+task_name
   path_map = os.path.join(FLAGS.data_dir, 'map_index.json')
   path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
   D_map = json.load(open(path_map, 'r'))
