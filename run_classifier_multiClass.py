@@ -1037,7 +1037,7 @@ def main(_):
         assert num_written_lines == num_actual_predict_examples
 class bert_cls:
     def __init__(self,task_name='all',gpu='5'):
-        os.environ['CUDA_VISIBLE_DEVICES'] = gpu
+        #os.environ['CUDA_VISIBLE_DEVICES'] = gpu
         data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
         bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
         vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
