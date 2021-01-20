@@ -66,7 +66,7 @@ nohup python -u run_classifier.py \
 #    --do_train=False \
 #    --do_eval=False \
 #    --do_predict=True >> log/labelmodel-predict-$task_name.log 2>&1 &
-
+export CUDA_VISIBLE_DEVICES=6
 BERT_BASE_DIR=/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12
 nohup python -u run_classifier_multiClass.py \
     --data_dir=/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel \

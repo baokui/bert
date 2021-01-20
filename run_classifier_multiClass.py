@@ -26,7 +26,7 @@ import optimization
 import tokenization
 import tensorflow as tf
 import json
-
+import numpy as np
 flags = tf.flags
 
 FLAGS = flags.FLAGS
@@ -1048,7 +1048,6 @@ class bert_cls:
         D_map = json.load(open(path_map, 'r'))
         D_alpha0 = json.load(open(path_alpha, 'r'))
         D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
-        self.D_inv_map = {D_map[task_name][k]:k for k in D_map[task_name]}
         tf.logging.set_verbosity(tf.logging.INFO)
         is_training = False
         processors = {
@@ -1060,16 +1059,17 @@ class bert_cls:
         }
         bert_config = modeling.BertConfig.from_json_file(bert_config_file)
         processor = processors[task_name.lower()]()
-        self.label_list = processor.get_labels(D_alpha[task_name])
         self.tokenizer = tokenization.FullTokenizer(
             vocab_file=vocab_file, do_lower_case=True)
         tf.reset_default_graph()
         self.input_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_ids')
         self.input_mask = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_mask')
         self.segment_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='segment_ids')
-        label_lists = processor.get_labels(D_alpha)
-        self.Num_labels = [len(label_list) for label_list in label_lists]
-        (Loss, LossList, LogitsList, ProbList, Per_example_loss) = create_model(
+        self.label_lists = processor.get_labels(D_alpha)
+        self.Num_labels = [len(label_list) for label_list in self.label_lists]
+        self.Label_ids = [tf.placeholder(tf.int32, shape=[None, ], name="label_ids_" + str(i)) for i in
+                          range(len(self.Num_labels))]
+        (Loss, LossList, LogitsList, self.ProbList, Per_example_loss) = create_model(
             bert_config, is_training, self.input_ids, self.input_mask, self.segment_ids, self.Label_ids,
             self.Num_labels, use_one_hot_embeddings=False)
         self.saver = tf.train.Saver(max_to_keep=None)
@@ -1079,7 +1079,7 @@ class bert_cls:
         self.saver.restore(self.session, init_checkpoint)
     def predict(self,inputStr):
         example = InputExample(guid='guid', text_a=inputStr, label='0')
-        feature = convert_single_example(10, example, self.label_list, self.max_seq_length, self.tokenizer)
+        feature = convert_single_example(10, example, self.label_lists, self.max_seq_length, self.tokenizer)
         X_input_ids = feature.input_ids
         X_segment_ids = feature.segment_ids
         X_input_mask = feature.input_mask
