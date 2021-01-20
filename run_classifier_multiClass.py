@@ -1048,6 +1048,8 @@ class bert_cls:
         D_map = json.load(open(path_map, 'r'))
         D_alpha0 = json.load(open(path_alpha, 'r'))
         D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
+        self.L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
+        self.D_map_inv = [{D_map[self.L0[i]][t]:t for t in D_map[self.L0[i]]} for i in range(len(self.L0))]
         tf.logging.set_verbosity(tf.logging.INFO)
         is_training = False
         processors = {
@@ -1078,20 +1080,34 @@ class bert_cls:
         init_checkpoint = tf.train.latest_checkpoint(output_dir)
         self.saver.restore(self.session, init_checkpoint)
     def predict(self,inputStr):
-        example = InputExample(guid='guid', text_a=inputStr, label='0')
+        example = InputExample(guid='guid', text_a=inputStr, label=['0' for _ in range(len(self.Num_labels))])
         feature = convert_single_example(10, example, self.label_lists, self.max_seq_length, self.tokenizer)
         X_input_ids = feature.input_ids
         X_segment_ids = feature.segment_ids
         X_input_mask = feature.input_mask
         feed_dict = {self.input_ids: [X_input_ids], self.segment_ids: [X_segment_ids],
                      self.input_mask: [X_input_mask]}
-        p = self.session.run(self.probabilities, feed_dict=feed_dict)
-        idx = np.argmax(p[0])
-        label = self.D_inv_map[idx]
-        score = np.float(p[0][idx])
-        p = list(p[0])
-        result = {self.D_inv_map[i]: np.float(p[i]) for i in range(len(p))}
-        return label,score,result
+        P = self.session.run(self.ProbList, feed_dict=feed_dict)
+        P = [p[0] for p in P]
+        R = {}
+        for i in range(len(P)):
+            p = P[i]
+            idx = np.argmax(p)
+            label = self.D_map_inv[i][idx]
+            score = np.float(p[idx])
+            p = list(p)
+            result = {self.D_map_inv[i][j]: np.float(p[j]) for j in range(len(p))}
+            R[self.L0[i]] = [label,score,result]
+        return R
+def demo():
+    model = bert_cls()
+    data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
+    path_test = os.path.join(data_dir,'test.txt')
+    output_dir = "model/label/all"
+    with open(path_test,'r',encoding='utf-8') as f:
+        S = f.read().strip().split('\n')
+    for i in range(len(S)):
+        r = model.predict(S[i].split('\t')[0])
 
 if __name__ == "__main__":
     # flags.mark_flag_as_required("data_dir")
