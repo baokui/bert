@@ -550,7 +550,7 @@ def file_based_input_fn_builder(input_file, seq_length, is_training,
         "is_real_example": tf.FixedLenFeature([], tf.int64),
     }
     for i in range(len(Num_labels)):
-        name_to_features["label_ids_"+str(i)] = tf.FixedLenFeature([], tf.int64),
+        name_to_features["label_ids_"+str(i)] = tf.FixedLenFeature([], tf.int64)
 
     def _decode_record(record, name_to_features):
         """Decodes a record to a TensorFlow example."""
