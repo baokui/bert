@@ -26,7 +26,8 @@ import optimization
 import tokenization
 import tensorflow as tf
 import sys
-
+import json
+import numpy as np
 flags = tf.flags
 
 FLAGS = flags.FLAGS
@@ -849,7 +850,6 @@ def get_model(max_seq_length, L, D_map, batch_size=64, is_training=True,use_foca
     train_op = tf.train.AdamOptimizer(learning_rate).minimize(Loss)
     return input,input_mask,segment_ids, Y, Loss, Acc, train_op, Predict
 def main(task_name,inputStr):
-  import json
   FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
   FLAGS.task_name = task_name
   FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
@@ -922,14 +922,104 @@ def main(task_name,inputStr):
   result = {D_inv_map[i]:p[i] for i in range(len(p))}
   return result
 
+class bert_cls:
+    def __init__(self,task_name,gpu):
+        os.environ['CUDA_VISIBLE_DEVICES'] = gpu
+        data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
+        bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
+        vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
+        self.max_seq_length = 128
+        output_dir = "model/label/" + task_name
+        path_map = os.path.join(data_dir, 'map_index.json')
+        path_alpha = os.path.join(data_dir, 'label_alpha.json')
+        D_map = json.load(open(path_map, 'r'))
+        D_alpha0 = json.load(open(path_alpha, 'r'))
+        D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
+        self.D_inv_map = {D_map[task_name][k]:k for k in D_map[task_name]}
+        tf.logging.set_verbosity(tf.logging.INFO)
+        is_training = False
+        processors = {
+            "cola": ColaProcessor,
+            "mnli": MnliProcessor,
+            "mrpc": MrpcProcessor,
+            "xnli": XnliProcessor,
+            "使用场景p0": LabelClass,
+            "表达对象p0": LabelClass,
+            '表达者性别倾向p0': LabelClass,
+            '文字风格': LabelClass
+        }
+        bert_config = modeling.BertConfig.from_json_file(bert_config_file)
+        processor = processors[task_name.lower()]()
+        self.label_list = processor.get_labels(D_alpha[task_name])
+        self.tokenizer = tokenization.FullTokenizer(
+            vocab_file=vocab_file, do_lower_case=True)
+        tf.reset_default_graph()
+        self.input_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_ids')
+        self.input_mask = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_mask')
+        self.segment_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='segment_ids')
+        num_labels = len(D_map[task_name])
+        labels = tf.placeholder(tf.int32, shape=[None, ], name='labels')
+        loss, per_example_loss, logits, self.probabilities = create_model(bert_config, is_training, self.input_ids, self.input_mask,
+                                                                     self.segment_ids,
+                                                                     labels, num_labels, use_one_hot_embeddings=False)
+        self.saver = tf.train.Saver(max_to_keep=None)
+        self.session = tf.Session()
+        self.session.run(tf.global_variables_initializer())
+        init_checkpoint = tf.train.latest_checkpoint(output_dir)
+        self.saver.restore(self.session, init_checkpoint)
+    def predict(self,inputStr):
+        example = InputExample(guid='guid', text_a=inputStr, label='0')
+        feature = convert_single_example(10, example, self.label_list, self.max_seq_length, self.tokenizer)
+        X_input_ids = feature.input_ids
+        X_segment_ids = feature.segment_ids
+        X_input_mask = feature.input_mask
+        feed_dict = {self.input_ids: [X_input_ids], self.segment_ids: [X_segment_ids],
+                     self.input_mask: [X_input_mask]}
+        p = self.session.run(self.probabilities, feed_dict=feed_dict)
+        idx = np.argmax(p[0])
+        label = self.D_inv_map[idx]
+        score = np.float(p[0][idx])
+        p = list(p[0])
+        result = {self.D_inv_map[i]: np.float(p[i]) for i in range(len(p))}
+        return label,score,result
+
+from flask import Flask, request, Response
+from gevent.pywsgi import WSGIServer
+from gevent import monkey
+import json
+import logging
+import sys
+import requests
+monkey.patch_all()
+app = Flask(__name__)
+L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
+models = [bert_cls(L0[i],str(i)) for i in range(len(L0))]
+@app.route('/api/bertCLS', methods=['POST'])
+def test1():
+    r = request.json
+    inputStr = r["input"]
+    result = {}
+    try:
+        result = {L0[i]:models[i].predict(inputStr) for i in range(len(L0))}
+        info_msg = 'success'
+        err_msg = ''
+    except Exception as e:
+        #app.logger.error("error:",str(e))
+        err_msg = e
+        info_msg = 'error'
+    response = {'msg':info_msg,'errMsg':err_msg,'result':result}
+    app.logger.error('GEN_ERROR\t' + json.dumps(response))
+    response_pickled = json.dumps(response)
+    return Response(response=response_pickled, status=200, mimetype="application/json")
+
+if __name__ != '__main__':
+    gunicorn_logger = logging.getLogger('gunicorn.error')
+    app.logger.handlers = gunicorn_logger.handlers
+    app.logger.setLevel(gunicorn_logger.level)
 
 if __name__ == "__main__":
-  task_name, inputStr = sys.argv[1:3]
-  r = main(task_name,inputStr)
-  print(r)
-  # flags.mark_flag_as_required("data_dir")
-  # flags.mark_flag_as_required("task_name")
-  # flags.mark_flag_as_required("vocab_file")
-  # flags.mark_flag_as_required("bert_config_file")
-  # flags.mark_flag_as_required("output_dir")
-  # tf.app.run()
+    port = int(sys.argv[1])
+    server = WSGIServer(("0.0.0.0", port), app)
+    print("Server started")
+    server.serve_forever()
+
