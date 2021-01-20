@@ -517,28 +517,23 @@ def convert_single_example(ex_index, example, label_lists, max_seq_length,
 def file_based_convert_examples_to_features(
         examples, label_lists, max_seq_length, tokenizer, output_file):
     """Convert a set of `InputExample`s to a TFRecord file."""
-
     writer = tf.python_io.TFRecordWriter(output_file)
-
     for (ex_index, example) in enumerate(examples):
         if ex_index % 10000 == 0:
             tf.logging.info("Writing example %d of %d" % (ex_index, len(examples)))
-
         feature = convert_single_example(ex_index, example, label_lists,
                                          max_seq_length, tokenizer)
-
         def create_int_feature(values):
             f = tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
             return f
-
         features = collections.OrderedDict()
         features["input_ids"] = create_int_feature(feature.input_ids)
         features["input_mask"] = create_int_feature(feature.input_mask)
         features["segment_ids"] = create_int_feature(feature.segment_ids)
-        features["label_ids"] = create_int_feature([feature.label_id])
+        for i in range(len(feature.label_id)):
+            features["label_ids_"+str(i)] = create_int_feature([feature.label_id[i]])
         features["is_real_example"] = create_int_feature(
             [int(feature.is_real_example)])
-
         tf_example = tf.train.Example(features=tf.train.Features(feature=features))
         writer.write(tf_example.SerializeToString())
     writer.close()
@@ -681,7 +676,7 @@ def model_fn_builder(bert_config, Num_labels, init_checkpoint, learning_rate,
         input_ids = features["input_ids"]
         input_mask = features["input_mask"]
         segment_ids = features["segment_ids"]
-        Label_ids = features["label_ids"]
+        Label_ids = [features["label_id_"+str(i)] for i in range(len(Num_labels))]
         is_real_example = None
         if "is_real_example" in features:
             is_real_example = tf.cast(features["is_real_example"], dtype=tf.float32)
@@ -863,7 +858,6 @@ def main(_):
         "xnli": XnliProcessor,
         "all": LabelClass,
     }
-
     tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
                                                   FLAGS.init_checkpoint)
 
