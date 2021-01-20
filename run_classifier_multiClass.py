@@ -25,6 +25,7 @@ import modeling
 import optimization
 import tokenization
 import tensorflow as tf
+import json
 
 flags = tf.flags
 
@@ -873,7 +874,7 @@ def main(_):
     processor = processors[task_name]()
 
     label_lists = processor.get_labels(D_alpha)
-    Num_labels = [len(label_lists) for label_list in label_lists]
+    Num_labels = [len(label_list) for label_list in label_lists]
 
     tokenizer = tokenization.FullTokenizer(
         vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
@@ -1034,7 +1035,63 @@ def main(_):
                 writer.write(output_line)
                 num_written_lines += 1
         assert num_written_lines == num_actual_predict_examples
-
+class bert_cls:
+    def __init__(self,task_name='all',gpu='5'):
+        os.environ['CUDA_VISIBLE_DEVICES'] = gpu
+        data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
+        bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
+        vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
+        self.max_seq_length = 128
+        output_dir = "model/label/" + task_name
+        path_map = os.path.join(data_dir, 'map_index.json')
+        path_alpha = os.path.join(data_dir, 'label_alpha.json')
+        D_map = json.load(open(path_map, 'r'))
+        D_alpha0 = json.load(open(path_alpha, 'r'))
+        D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
+        self.D_inv_map = {D_map[task_name][k]:k for k in D_map[task_name]}
+        tf.logging.set_verbosity(tf.logging.INFO)
+        is_training = False
+        processors = {
+            "cola": ColaProcessor,
+            "mnli": MnliProcessor,
+            "mrpc": MrpcProcessor,
+            "xnli": XnliProcessor,
+            "all": LabelClass
+        }
+        bert_config = modeling.BertConfig.from_json_file(bert_config_file)
+        processor = processors[task_name.lower()]()
+        self.label_list = processor.get_labels(D_alpha[task_name])
+        self.tokenizer = tokenization.FullTokenizer(
+            vocab_file=vocab_file, do_lower_case=True)
+        tf.reset_default_graph()
+        self.input_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_ids')
+        self.input_mask = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_mask')
+        self.segment_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='segment_ids')
+        label_lists = processor.get_labels(D_alpha)
+        self.Num_labels = [len(label_list) for label_list in label_lists]
+        (Loss, LossList, LogitsList, ProbList, Per_example_loss) = create_model(
+            bert_config, is_training, self.input_ids, self.input_mask, self.segment_ids, self.Label_ids,
+            self.Num_labels, use_one_hot_embeddings=False)
+        self.saver = tf.train.Saver(max_to_keep=None)
+        self.session = tf.Session()
+        self.session.run(tf.global_variables_initializer())
+        init_checkpoint = tf.train.latest_checkpoint(output_dir)
+        self.saver.restore(self.session, init_checkpoint)
+    def predict(self,inputStr):
+        example = InputExample(guid='guid', text_a=inputStr, label='0')
+        feature = convert_single_example(10, example, self.label_list, self.max_seq_length, self.tokenizer)
+        X_input_ids = feature.input_ids
+        X_segment_ids = feature.segment_ids
+        X_input_mask = feature.input_mask
+        feed_dict = {self.input_ids: [X_input_ids], self.segment_ids: [X_segment_ids],
+                     self.input_mask: [X_input_mask]}
+        p = self.session.run(self.probabilities, feed_dict=feed_dict)
+        idx = np.argmax(p[0])
+        label = self.D_inv_map[idx]
+        score = np.float(p[0][idx])
+        p = list(p[0])
+        result = {self.D_inv_map[i]: np.float(p[i]) for i in range(len(p))}
+        return label,score,result
 
 if __name__ == "__main__":
     # flags.mark_flag_as_required("data_dir")
