@@ -402,7 +402,7 @@ class LabelClass(DataProcessor):
         """See base class."""
         return [[str(i) for i in range(len(D_label[k]))] for k in D_label]
 
-    def _create_examples(self, lines, set_type, idx_label):
+    def _create_examples(self, lines, set_type, idx_labels):
         """Creates examples for the training and dev sets."""
         examples = []
         for (i, line) in enumerate(lines):
@@ -412,11 +412,11 @@ class LabelClass(DataProcessor):
             text_a = tokenization.convert_to_unicode(line[0])
             text_b = None
             if set_type == "test":
-                label = "0"
+                labels = ["0" for _ in range(len(idx_labels))]
             else:
-                label = tokenization.convert_to_unicode(line[idx_label])
+                labels = [tokenization.convert_to_unicode(line[idx_label]) for idx_label in idx_labels]
             examples.append(
-                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=labels))
         return examples
 
 
@@ -836,11 +836,11 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
 
 def main(_):
     import json
-    import json
     FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
     FLAGS.task_name = "all"
     FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
     FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
+    FLAGS.init_checkpoint = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_model.ckpt"
     FLAGS.output_dir = "model/label/" + FLAGS.task_name
     path_map = os.path.join(FLAGS.data_dir, 'map_index.json')
     path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
@@ -849,6 +849,7 @@ def main(_):
     D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
     path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
     L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
+    idx0 = [1,2,3,4]
     tf.logging.set_verbosity(tf.logging.INFO)
 
     processors = {
@@ -856,10 +857,7 @@ def main(_):
         "mnli": MnliProcessor,
         "mrpc": MrpcProcessor,
         "xnli": XnliProcessor,
-        "使用场景p0": LabelClass,
-        "表达对象p0": LabelClass,
-        '表达者性别倾向p0': LabelClass,
-        '文字风格': LabelClass
+        "all": LabelClass,
     }
 
     tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
@@ -887,7 +885,7 @@ def main(_):
     processor = processors[task_name]()
 
     label_lists = processor.get_labels(D_alpha)
-    Num_labels = [len(label_list) for label_list in label_lists]
+    Num_labels = [len(label_lists) for label_list in label_lists]
 
     tokenizer = tokenization.FullTokenizer(
         vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
@@ -912,7 +910,7 @@ def main(_):
     num_train_steps = None
     num_warmup_steps = None
     if FLAGS.do_train:
-        train_examples = processor.get_train_examples(FLAGS.data_dir, idx_label=idx0 + 1)
+        train_examples = processor.get_train_examples(FLAGS.data_dir, idx_label=idx0)
         num_train_steps = int(
             len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
         num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
@@ -953,7 +951,7 @@ def main(_):
         estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
 
     if FLAGS.do_eval:
-        eval_examples = processor.get_dev_examples(FLAGS.data_dir, idx_label=idx0 + 1)
+        eval_examples = processor.get_dev_examples(FLAGS.data_dir, idx_label=idx0)
         num_actual_eval_examples = len(eval_examples)
         if FLAGS.use_tpu:
             # TPU requires a fixed batch size for all batches, therefore the number
@@ -999,7 +997,7 @@ def main(_):
                 writer.write("%s = %s\n" % (key, str(result[key])))
 
     if FLAGS.do_predict:
-        predict_examples = processor.get_test_examples(FLAGS.data_dir, idx_label=idx0 + 1)
+        predict_examples = processor.get_test_examples(FLAGS.data_dir, idx_label=idx0)
         num_actual_predict_examples = len(predict_examples)
         if FLAGS.use_tpu:
             # TPU requires a fixed batch size for all batches, therefore the number
