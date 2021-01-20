@@ -503,7 +503,7 @@ def convert_single_example(ex_index, example, label_lists, max_seq_length,
         label_map = {}
         for (i, label) in enumerate(label_list):
             label_map[label] = i
-        label_id = label_map[example.label]
+        label_id = label_map[example.label[k]]
         label_ids.append(label_id)
     feature = InputFeatures(
         input_ids=input_ids,
@@ -833,7 +833,12 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
         features.append(feature)
     return features
 
-
+def netConfig():
+    import numpy as np
+    print('参数量：%d'%(np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()])))
+    tvars = [v for v in tf.trainable_variables()]
+    for t in tvars:
+        print(t)
 def main(_):
     import json
     FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
@@ -851,7 +856,6 @@ def main(_):
     L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
     idx0 = [1,2,3,4]
     tf.logging.set_verbosity(tf.logging.INFO)
-
     processors = {
         "cola": ColaProcessor,
         "mnli": MnliProcessor,
