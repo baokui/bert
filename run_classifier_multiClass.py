@@ -540,16 +540,17 @@ def file_based_convert_examples_to_features(
 
 
 def file_based_input_fn_builder(input_file, seq_length, is_training,
-                                drop_remainder):
+                                drop_remainder,Num_labels):
     """Creates an `input_fn` closure to be passed to TPUEstimator."""
 
     name_to_features = {
         "input_ids": tf.FixedLenFeature([seq_length], tf.int64),
         "input_mask": tf.FixedLenFeature([seq_length], tf.int64),
         "segment_ids": tf.FixedLenFeature([seq_length], tf.int64),
-        "label_ids": tf.FixedLenFeature([], tf.int64),
         "is_real_example": tf.FixedLenFeature([], tf.int64),
     }
+    for i in range(len(Num_labels)):
+        name_to_features["label_ids_"+str(i)] = tf.FixedLenFeature([], tf.int64),
 
     def _decode_record(record, name_to_features):
         """Decodes a record to a TensorFlow example."""
@@ -665,24 +666,21 @@ def model_fn_builder(bert_config, Num_labels, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
                      use_one_hot_embeddings):
     """Returns `model_fn` closure for TPUEstimator."""
-
     def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
         """The `model_fn` for TPUEstimator."""
-
         tf.logging.info("*** Features ***")
         for name in sorted(features.keys()):
             tf.logging.info("  name = %s, shape = %s" % (name, features[name].shape))
-
+        print(features)
         input_ids = features["input_ids"]
         input_mask = features["input_mask"]
         segment_ids = features["segment_ids"]
-        Label_ids = [features["label_id_"+str(i)] for i in range(len(Num_labels))]
+        Label_ids = [features["label_ids_"+str(i)] for i in range(len(Num_labels))]
         is_real_example = None
         if "is_real_example" in features:
             is_real_example = tf.cast(features["is_real_example"], dtype=tf.float32)
         else:
             is_real_example = tf.ones(tf.shape(Label_ids[0]), dtype=tf.float32)
-
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
         (Loss, LossList, LogitsList, ProbList,Per_example_loss) = create_model(
             bert_config, is_training, input_ids, input_mask, segment_ids, Label_ids,
@@ -695,15 +693,12 @@ def model_fn_builder(bert_config, Num_labels, init_checkpoint, learning_rate,
             (assignment_map, initialized_variable_names
              ) = modeling.get_assignment_map_from_checkpoint(tvars, init_checkpoint)
             if use_tpu:
-
                 def tpu_scaffold():
                     tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
                     return tf.train.Scaffold()
-
                 scaffold_fn = tpu_scaffold
             else:
                 tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
-
         tf.logging.info("**** Trainable Variables ****")
         for var in tvars:
             init_string = ""
@@ -711,20 +706,16 @@ def model_fn_builder(bert_config, Num_labels, init_checkpoint, learning_rate,
                 init_string = ", *INIT_FROM_CKPT*"
             tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
                             init_string)
-
         output_spec = None
         if mode == tf.estimator.ModeKeys.TRAIN:
-
             train_op = optimization.create_optimizer(
                 total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
-
             output_spec = tf.contrib.tpu.TPUEstimatorSpec(
                 mode=mode,
                 loss=total_loss,
                 train_op=train_op,
                 scaffold_fn=scaffold_fn)
         elif mode == tf.estimator.ModeKeys.EVAL:
-
             def metric_fn(Per_example_loss, Label_ids, Logits, is_real_example):
                 Acc = []
                 Loss = []
@@ -739,7 +730,6 @@ def model_fn_builder(bert_config, Num_labels, init_checkpoint, learning_rate,
                     "eval_accuracy": Acc,
                     "eval_loss": Loss,
                 }
-
             eval_metrics = (metric_fn,
                             [Per_example_loss, Label_ids, LogitsList, is_real_example])
             output_spec = tf.contrib.tpu.TPUEstimatorSpec(
@@ -753,13 +743,12 @@ def model_fn_builder(bert_config, Num_labels, init_checkpoint, learning_rate,
                 predictions={"probabilities": ProbList},
                 scaffold_fn=scaffold_fn)
         return output_spec
-
     return model_fn
 
 
 # This function is not used by this file but is still used by the Colab and
 # people who depend on it.
-def input_fn_builder(features, seq_length, is_training, drop_remainder):
+def input_fn_builder(features, seq_length, is_training, drop_remainder,Num_labels):
     """Creates an `input_fn` closure to be passed to TPUEstimator."""
 
     all_input_ids = []
@@ -782,7 +771,7 @@ def input_fn_builder(features, seq_length, is_training, drop_remainder):
         # This is for demo purposes and does NOT scale to large data sets. We do
         # not use Dataset.from_generator() because that uses tf.py_func which is
         # not TPU compatible. The right way to load data is with TFRecordReader.
-        d = tf.data.Dataset.from_tensor_slices({
+        d0 = {
             "input_ids":
                 tf.constant(
                     all_input_ids, shape=[num_examples, seq_length],
@@ -797,9 +786,10 @@ def input_fn_builder(features, seq_length, is_training, drop_remainder):
                     all_segment_ids,
                     shape=[num_examples, seq_length],
                     dtype=tf.int32),
-            "label_ids":
-                tf.constant(all_label_ids, shape=[num_examples], dtype=tf.int32),
-        })
+        }
+        for i in range(len(Num_labels)):
+            d0["label_ids_"+str(i)] = tf.constant(all_label_ids, shape=[num_examples], dtype=tf.int32)
+        d = tf.data.Dataset.from_tensor_slices(d0)
 
         if is_training:
             d = d.repeat()
@@ -945,7 +935,9 @@ def main(_):
             input_file=train_file,
             seq_length=FLAGS.max_seq_length,
             is_training=True,
-            drop_remainder=True)
+            drop_remainder=True,
+            Num_labels = Num_labels
+        )
         estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
 
     if FLAGS.do_eval:
@@ -983,7 +975,9 @@ def main(_):
             input_file=eval_file,
             seq_length=FLAGS.max_seq_length,
             is_training=False,
-            drop_remainder=eval_drop_remainder)
+            drop_remainder=eval_drop_remainder,
+            Num_labels = Num_labels
+        )
 
         result = estimator.evaluate(input_fn=eval_input_fn, steps=eval_steps)
 
@@ -1021,7 +1015,8 @@ def main(_):
             input_file=predict_file,
             seq_length=FLAGS.max_seq_length,
             is_training=False,
-            drop_remainder=predict_drop_remainder)
+            drop_remainder=predict_drop_remainder,
+            Num_labels = Num_labels)
 
         result = estimator.predict(input_fn=predict_input_fn)
 
