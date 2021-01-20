@@ -1098,16 +1098,23 @@ class bert_cls:
             p = list(p)
             result = {self.D_map_inv[i][j]: np.float(p[j]) for j in range(len(p))}
             R[self.L0[i]] = [label,score,result]
-        return R
+        return R,P
 def demo():
     model = bert_cls()
     data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
     path_test = os.path.join(data_dir,'test.txt')
     output_dir = "model/label/all"
+    L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
     with open(path_test,'r',encoding='utf-8') as f:
         S = f.read().strip().split('\n')
+    P = [[] for i in range(len(L0))]
     for i in range(len(S)):
-        r = model.predict(S[i].split('\t')[0])
+        r,p = model.predict(S[i].split('\t')[0])
+        for j in range(len(L0)):
+            P[j].append('\t'.join(['%0.5f'%t for t in p[j]]))
+    for i in range(len(L0)):
+        with open(os.path.join(output_dir,'result_test_{}.txt'.format(L0[i])),'w') as f:
+            f.write('\n'.join(P[i]))
 
 if __name__ == "__main__":
     # flags.mark_flag_as_required("data_dir")
