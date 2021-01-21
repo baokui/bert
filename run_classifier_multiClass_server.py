@@ -24,7 +24,7 @@ def test1():
         err_msg = e
         info_msg = 'error'
     response = {'msg':info_msg,'errMsg':err_msg,'result':result}
-    app.logger.error('GEN_ERROR\t' + json.dumps(response))
+    app.logger.error('GEN_ERROR\t' + json.dumps(response,ensure_ascii=False,indent=4))
     response_pickled = json.dumps(response)
     return Response(response=response_pickled, status=200, mimetype="application/json")
 def demo():
