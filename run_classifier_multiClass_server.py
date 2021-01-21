@@ -62,7 +62,25 @@ def demo():
         if i%1000==0:
             with open('tmp_multi.txt','w',encoding='utf-8') as f:
                 _ = f.write('\n'.join(['\t'.join(t) for t in R]))
-
+    data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
+    with open(data_dir+'/train.txt','r') as f:
+        x = f.read().strip().split('\n')
+    X = [t.split('\t')[0] for t in x]
+    R_trn = []
+    R_tst = []
+    for i in range(1,len(R)):
+        if R[i][4] in X:
+            R_trn.append(R[i])
+        else:
+            R_tst.append(R[i])
+    R_trn = [['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格','内容']]+R_trn
+    R_tst = [['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格','内容']]+R_tst
+    with open('vpaLabel_train.txt', 'w', encoding='utf-8') as f:
+        _ = f.write('\n'.join(['\t'.join(t) for t in R_trn]))
+    import random
+    random.shuffle(R_tst)
+    with open('vpaLabel_test.txt', 'w', encoding='utf-8') as f:
+        _ = f.write('\n'.join(['\t'.join(t) for t in R_tst]))
 
 if __name__ != '__main__':
     gunicorn_logger = logging.getLogger('gunicorn.error')
