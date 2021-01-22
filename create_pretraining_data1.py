@@ -334,6 +334,7 @@ def create_instances_from_document(
                 current_length = 0
         except:
             print('create_error:',i,document)
+            break
         i += 1
     return instances
 
