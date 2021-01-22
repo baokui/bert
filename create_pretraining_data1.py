@@ -317,7 +317,7 @@ def create_instances_from_document(
                 if len(segment)-winSize-1<winSize:
                     continue
                 idx_p = rng.randint(winSize,len(segment)-winSize-1)
-                idx_t = [i for i in range(idx_p-winSize,idx_p+winSize+1) if i!=idx_p]
+                idx_t = [k for k in range(idx_p-winSize,idx_p+winSize+1) if k!=idx_p]
                 tipToken = [segment[ii] for ii in idx_t]
                 preToken = segment[idx_p]
                 instance = TrainingInstance(
