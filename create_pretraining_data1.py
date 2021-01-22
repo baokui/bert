@@ -333,7 +333,7 @@ def create_instances_from_document(
                 current_chunk = []
                 current_length = 0
         except:
-            print('create_error:',document)
+            print('create_error:',i,document)
         i += 1
     return instances
 
