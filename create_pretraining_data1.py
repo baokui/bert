@@ -252,85 +252,88 @@ def create_instances_from_document(
     current_length = 0
     i = 0
     while i < len(document):
-        segment = document[i]
-        current_chunk.append(segment)
-        current_length += len(segment)
-        if i == len(document) - 1 or current_length >= target_seq_length:
-            if current_chunk:
-                # `a_end` is how many segments from `current_chunk` go into the `A`
-                # (first) sentence.
-                a_end = 1
-                if len(current_chunk) >= 2:
-                    a_end = rng.randint(1, len(current_chunk) - 1)
-                tokens_a = []
-                for j in range(a_end):
-                    tokens_a.extend(current_chunk[j])
-                tokens_b = []
-                # Random next
-                is_random_next = False
-                if len(current_chunk) == 1 or rng.random() < 0.5:
-                    is_random_next = True
-                    target_b_length = target_seq_length - len(tokens_a)
-                    # This should rarely go for more than one iteration for large
-                    # corpora. However, just to be careful, we try to make sure that
-                    # the random document is not the same as the document
-                    # we're processing.
-                    for _ in range(10):
-                        random_document_index = rng.randint(0, len(all_documents) - 1)
-                        if random_document_index != document_index:
-                            break
-                    random_document = all_documents[random_document_index]
-                    random_start = rng.randint(0, len(random_document) - 1)
-                    for j in range(random_start, len(random_document)):
-                        tokens_b.extend(random_document[j])
-                        if len(tokens_b) >= target_b_length:
-                            break
-                    # We didn't actually use these segments so we "put them back" so
-                    # they don't go to waste.
-                    num_unused_segments = len(current_chunk) - a_end
-                    i -= num_unused_segments
-                # Actual next
-                else:
+        try:
+            segment = document[i]
+            current_chunk.append(segment)
+            current_length += len(segment)
+            if i == len(document) - 1 or current_length >= target_seq_length:
+                if current_chunk:
+                    # `a_end` is how many segments from `current_chunk` go into the `A`
+                    # (first) sentence.
+                    a_end = 1
+                    if len(current_chunk) >= 2:
+                        a_end = rng.randint(1, len(current_chunk) - 1)
+                    tokens_a = []
+                    for j in range(a_end):
+                        tokens_a.extend(current_chunk[j])
+                    tokens_b = []
+                    # Random next
                     is_random_next = False
-                    for j in range(a_end, len(current_chunk)):
-                        tokens_b.extend(current_chunk[j])
-                truncate_seq_pair(tokens_a, tokens_b, max_num_tokens, rng)
-                assert len(tokens_a) >= 1
-                assert len(tokens_b) >= 1
-                tokens = []
-                segment_ids = []
-                tokens.append("[CLS]")
-                segment_ids.append(0)
-                for token in tokens_a:
-                    tokens.append(token)
+                    if len(current_chunk) == 1 or rng.random() < 0.5:
+                        is_random_next = True
+                        target_b_length = target_seq_length - len(tokens_a)
+                        # This should rarely go for more than one iteration for large
+                        # corpora. However, just to be careful, we try to make sure that
+                        # the random document is not the same as the document
+                        # we're processing.
+                        for _ in range(10):
+                            random_document_index = rng.randint(0, len(all_documents) - 1)
+                            if random_document_index != document_index:
+                                break
+                        random_document = all_documents[random_document_index]
+                        random_start = rng.randint(0, len(random_document) - 1)
+                        for j in range(random_start, len(random_document)):
+                            tokens_b.extend(random_document[j])
+                            if len(tokens_b) >= target_b_length:
+                                break
+                        # We didn't actually use these segments so we "put them back" so
+                        # they don't go to waste.
+                        num_unused_segments = len(current_chunk) - a_end
+                        i -= num_unused_segments
+                    # Actual next
+                    else:
+                        is_random_next = False
+                        for j in range(a_end, len(current_chunk)):
+                            tokens_b.extend(current_chunk[j])
+                    truncate_seq_pair(tokens_a, tokens_b, max_num_tokens, rng)
+                    assert len(tokens_a) >= 1
+                    assert len(tokens_b) >= 1
+                    tokens = []
+                    segment_ids = []
+                    tokens.append("[CLS]")
                     segment_ids.append(0)
-                # tokens.append("[SEP]")
-                # segment_ids.append(0)
-                # for token in tokens_b:
-                #     tokens.append(token)
-                #     segment_ids.append(1)
-                # tokens.append("[SEP]")
-                # segment_ids.append(1)
-                (tokens, masked_lm_positions,
-                 masked_lm_labels) = create_masked_lm_predictions(
-                    tokens, masked_lm_prob, max_predictions_per_seq, vocab_words, rng)
-                if len(segment)-winSize-1<winSize:
-                    continue
-                idx_p = rng.randint(winSize,len(segment)-winSize-1)
-                idx_t = [k for k in range(idx_p-winSize,idx_p+winSize+1) if k!=idx_p]
-                tipToken = [segment[ii] for ii in idx_t]
-                preToken = segment[idx_p]
-                instance = TrainingInstance(
-                    tokens=tokens,
-                    segment_ids=segment_ids,
-                    is_random_next=is_random_next,
-                    masked_lm_positions=masked_lm_positions,
-                    masked_lm_labels=masked_lm_labels,
-                    tipToken=tipToken,
-                    preToken=preToken)
-                instances.append(instance)
-            current_chunk = []
-            current_length = 0
+                    for token in tokens_a:
+                        tokens.append(token)
+                        segment_ids.append(0)
+                    # tokens.append("[SEP]")
+                    # segment_ids.append(0)
+                    # for token in tokens_b:
+                    #     tokens.append(token)
+                    #     segment_ids.append(1)
+                    # tokens.append("[SEP]")
+                    # segment_ids.append(1)
+                    (tokens, masked_lm_positions,
+                     masked_lm_labels) = create_masked_lm_predictions(
+                        tokens, masked_lm_prob, max_predictions_per_seq, vocab_words, rng)
+                    if len(segment)-winSize-1<winSize:
+                        continue
+                    idx_p = rng.randint(winSize,len(segment)-winSize-1)
+                    idx_t = [k for k in range(idx_p-winSize,idx_p+winSize+1) if k!=idx_p]
+                    tipToken = [segment[ii] for ii in idx_t]
+                    preToken = segment[idx_p]
+                    instance = TrainingInstance(
+                        tokens=tokens,
+                        segment_ids=segment_ids,
+                        is_random_next=is_random_next,
+                        masked_lm_positions=masked_lm_positions,
+                        masked_lm_labels=masked_lm_labels,
+                        tipToken=tipToken,
+                        preToken=preToken)
+                    instances.append(instance)
+                current_chunk = []
+                current_length = 0
+        except:
+            print('create_error:',document)
         i += 1
     return instances
 
