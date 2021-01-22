@@ -213,13 +213,14 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
 
     vocab_words = list(tokenizer.vocab.keys())
     instances = []
-    for _ in range(dupe_factor):
+    for d in range(dupe_factor):
         for document_index in range(len(all_documents)):
             instances.extend(
                 create_instances_from_document(
                     all_documents, document_index, max_seq_length, short_seq_prob,
                     masked_lm_prob, max_predictions_per_seq, vocab_words, rng))
-
+            if document_index%10000==0:
+                print(d,document_index,len(all_documents))
     rng.shuffle(instances)
     return instances
 
@@ -313,6 +314,8 @@ def create_instances_from_document(
                 (tokens, masked_lm_positions,
                  masked_lm_labels) = create_masked_lm_predictions(
                     tokens, masked_lm_prob, max_predictions_per_seq, vocab_words, rng)
+                if len(segment)-winSize-1<winSize:
+                    continue
                 idx_p = rng.randint(winSize,len(segment)-winSize-1)
                 idx_t = [i for i in range(idx_p-winSize,idx_p+winSize+1) if i!=idx_p]
                 tipToken = [segment[ii] for ii in idx_t]
@@ -457,6 +460,47 @@ def main(_):
 
     write_instance_to_example_files(instances, tokenizer, FLAGS.max_seq_length,
                                     FLAGS.max_predictions_per_seq, output_files)
+
+
+def test():
+    import numpy as np
+    tfrecords_filename = 'test.tfrecord'
+    writer = tf.python_io.TFRecordWriter(tfrecords_filename)
+    for i in range(100):
+        img_raw = np.random.random_integers(0, 255, size=(7, 30))  # 创建7*30，取值在0-255之间随机数组
+        img_raw = img_raw.tostring()
+        example = tf.train.Example(features=tf.train.Features(
+            feature={
+                'label': tf.train.Feature(int64_list=tf.train.Int64List(value=[i,i+1])),
+                'img_raw': tf.train.Feature(bytes_list=tf.train.BytesList(value=[img_raw]))
+            }))
+        writer.write(example.SerializeToString())
+    writer.close()
+
+    filename_queue = tf.train.string_input_producer([tfrecords_filename], )  # 读入流中
+    reader = tf.TFRecordReader()
+    _, serialized_example = reader.read(filename_queue)  # 返回文件名和文件
+    features = tf.parse_single_example(serialized_example,
+                                       features={
+                                           'label': tf.FixedLenFeature([], tf.int64),
+                                           'img_raw': tf.FixedLenFeature([], tf.string),
+                                       })  # 取出包含image和label的feature对象
+    image = tf.decode_raw(features['img_raw'], tf.int64)
+    image = tf.reshape(image, [7, 30])
+    label = tf.cast(features['label'], tf.int64)
+    with tf.Session() as sess:  # 开始一个会话
+        init_op = tf.initialize_all_variables()
+        sess.run(init_op)
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(coord=coord)
+        print(1)
+        for i in range(20):
+            example, l = sess.run([image, label])  # 在会话中取出image和label
+            img = example  # 这里Image是之前提到的
+            #img.save('./' + str(i) + '_''Label_' + str(l) + '.jpg')  # 存下图片
+            print(example, l)
+        coord.request_stop()
+        coord.join(threads)
 
 
 if __name__ == "__main__":
