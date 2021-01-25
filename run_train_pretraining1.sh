@@ -1,6 +1,6 @@
 export CUDA_VISIBLE_DEVICES=6
 BERT_BASE_DIR=/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12
-nohup python -u run_classifier_multiClass.py \
+nohup python -u run_pretraining1.py \
     --input_file=data/vpa_tfrecord/vpaTst.tfrecord \
     --bert_config_file=$BERT_BASE_DIR/bert_config.json \
     --vocab_file=$BERT_BASE_DIR/vocab.txt \

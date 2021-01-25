@@ -35,7 +35,7 @@ flags.DEFINE_string(
     "This specifies the model architecture.")
 
 flags.DEFINE_string(
-    "input_file", None,
+    "input_file", "data/vpa_tfrecord/vpaTst.tfrecord",
     "Input TF example files (can be a glob or comma separated).")
 
 flags.DEFINE_string(
@@ -118,7 +118,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
     tf.logging.info("*** Features ***")
     for name in sorted(features.keys()):
       tf.logging.info("  name = %s, shape = %s" % (name, features[name].shape))
-
+    print("TEST:",features)
     input_ids = features["input_ids"]
     input_mask = features["input_mask"]
     segment_ids = features["segment_ids"]
