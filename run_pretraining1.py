@@ -124,7 +124,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
     segment_ids = features["segment_ids"]
     masked_lm_positions = features["masked_lm_positions"]
     masked_lm_ids = features["masked_lm_ids"]
-    masked_lm_weights = features["masked_lm_weights"]
+    #masked_lm_weights = features["masked_lm_weights"]
     next_sentence_labels = features["next_sentence_labels"]
     tip_ids = features["tip_ids"]
     pre_id = features["pre_id"]
@@ -142,7 +142,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
     (masked_lm_loss,
      masked_lm_example_loss, masked_lm_log_probs) = get_masked_lm_output(
          bert_config, model.get_sequence_output(), model.get_embedding_table(),
-         masked_lm_positions, masked_lm_ids, masked_lm_weights,model.get_pooled_output(),tip_ids,pre_id)
+         masked_lm_positions, masked_lm_ids,model.get_pooled_output(),tip_ids,pre_id)
 
     (next_sentence_loss, next_sentence_example_loss,
      next_sentence_log_probs) = get_next_sentence_output(
@@ -224,7 +224,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
 
       eval_metrics = (metric_fn, [
           masked_lm_example_loss, masked_lm_log_probs, masked_lm_ids,
-          masked_lm_weights, next_sentence_example_loss,
+          None, next_sentence_example_loss,
           next_sentence_log_probs, next_sentence_labels
       ])
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
@@ -241,7 +241,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
 
 
 def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
-                         label_ids, label_weights,cls_tensor,tip_ids,pre_id,num_sampled=64):
+                         label_ids, cls_tensor,tip_ids,pre_id,num_sampled=64):
   """Get loss and log probs for the masked LM."""
   input_tensor = gather_indexes(input_tensor, positions)
 
@@ -268,7 +268,6 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
     log_probs = tf.nn.log_softmax(logits, axis=-1)
 
     label_ids = tf.reshape(label_ids, [-1])
-    label_weights = tf.reshape(label_weights, [-1])
 
     one_hot_labels = tf.one_hot(
         label_ids, depth=bert_config.vocab_size, dtype=tf.float32)
@@ -283,7 +282,6 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
     #loss = numerator / denominator
     vocabulary_size = int(output_weights.shape[0])
     embedding_size = int(output_weights.shape[1])
-    hiddenSize = int(input_tensor.shape[1])
     with tf.device('/cpu:0'):
         # Look up embeddings for inputs.
         embed = tf.nn.embedding_lookup(output_weights, tip_ids)
