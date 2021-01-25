@@ -22,6 +22,7 @@ import os
 import modeling
 import optimization
 import tensorflow as tf
+import math
 
 flags = tf.flags
 
@@ -240,7 +241,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
 
 
 def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
-                         label_ids, label_weights,tip_ids,pre_id):
+                         label_ids, label_weights,tip_ids,pre_id,num_sampled=64):
   """Get loss and log probs for the masked LM."""
   input_tensor = gather_indexes(input_tensor, positions)
 
@@ -277,15 +278,15 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
     # tensor has a value of 1.0 for every real prediction and 0.0 for the
     # padding predictions.
     per_example_loss = -tf.reduce_sum(log_probs * one_hot_labels, axis=[-1])
-    numerator = tf.reduce_sum(label_weights * per_example_loss)
-    denominator = tf.reduce_sum(label_weights) + 1e-5
-    loss = numerator / denominator
+    #numerator = tf.reduce_sum(label_weights * per_example_loss)
+    #denominator = tf.reduce_sum(label_weights) + 1e-5
+    #loss = numerator / denominator
+    vocabulary_size = int(output_weights.shape[0])
+    embedding_size = int(output_weights.shape[1])
     with tf.device('/cpu:0'):
         # Look up embeddings for inputs.
-        embeddings = tf.Variable(
-            tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0))
-        embed = tf.nn.embedding_lookup(embeddings, train_inputs)
-
+        embed = tf.nn.embedding_lookup(output_weights, tip_ids)
+        outputFeature = embed+input_tensor
         # Construct the variables for the NCE loss
         nce_weights = tf.Variable(
             tf.truncated_normal([vocabulary_size, embedding_size],
@@ -296,7 +297,7 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
     # tf.nce_loss automatically draws a new sample of the negative labels each
     # time we evaluate the loss.
     loss = tf.reduce_mean(
-        tf.nn.nce_loss(weights=nce_weights, biases=nce_biases, inputs=embed, labels=train_labels,
+        tf.nn.nce_loss(weights=nce_weights, biases=nce_biases, inputs=outputFeature, labels=pre_id,
                        num_sampled=num_sampled, num_classes=vocabulary_size))
 
   return (loss, per_example_loss, log_probs)
