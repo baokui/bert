@@ -240,10 +240,10 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
   return model_fn
 
 
-def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
+def get_masked_lm_output(bert_config, input_tensor0, output_weights, positions,
                          label_ids, label_weights,tip_ids,pre_id,num_sampled=64):
   """Get loss and log probs for the masked LM."""
-  input_tensor = gather_indexes(input_tensor, positions)
+  input_tensor = gather_indexes(input_tensor0, positions)
 
   with tf.variable_scope("cls/predictions"):
     # We apply one more non-linear transformation before the output layer.
@@ -283,10 +283,14 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
     #loss = numerator / denominator
     vocabulary_size = int(output_weights.shape[0])
     embedding_size = int(output_weights.shape[1])
+    hiddenSize = int(input_tensor.shape[1])
     with tf.device('/cpu:0'):
         # Look up embeddings for inputs.
         embed = tf.nn.embedding_lookup(output_weights, tip_ids)
-        outputFeature = embed+input_tensor
+        contextFeature = tf.reduce_mean(embed,axis=1)
+        print('TEST',contextFeature,input_tensor0)
+        outputFeature = contextFeature+input_tensor0
+        #outputFeature = tf.concat([input_tensor, contextFeature], axis=-1)
         # Construct the variables for the NCE loss
         nce_weights = tf.Variable(
             tf.truncated_normal([vocabulary_size, embedding_size],
