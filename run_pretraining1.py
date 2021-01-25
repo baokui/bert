@@ -142,7 +142,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
     (masked_lm_loss,
      masked_lm_example_loss, masked_lm_log_probs) = get_masked_lm_output(
          bert_config, model.get_sequence_output(), model.get_embedding_table(),
-         masked_lm_positions, masked_lm_ids, masked_lm_weights,tip_ids,pre_id)
+         masked_lm_positions, masked_lm_ids, masked_lm_weights,model.get_pooled_output(),tip_ids,pre_id)
 
     (next_sentence_loss, next_sentence_example_loss,
      next_sentence_log_probs) = get_next_sentence_output(
@@ -240,10 +240,10 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
   return model_fn
 
 
-def get_masked_lm_output(bert_config, input_tensor0, output_weights, positions,
-                         label_ids, label_weights,tip_ids,pre_id,num_sampled=64):
+def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
+                         label_ids, label_weights,cls_tensor,tip_ids,pre_id,num_sampled=64):
   """Get loss and log probs for the masked LM."""
-  input_tensor = gather_indexes(input_tensor0, positions)
+  input_tensor = gather_indexes(input_tensor, positions)
 
   with tf.variable_scope("cls/predictions"):
     # We apply one more non-linear transformation before the output layer.
@@ -288,8 +288,8 @@ def get_masked_lm_output(bert_config, input_tensor0, output_weights, positions,
         # Look up embeddings for inputs.
         embed = tf.nn.embedding_lookup(output_weights, tip_ids)
         contextFeature = tf.reduce_mean(embed,axis=1)
-        print('TEST',contextFeature,input_tensor0)
-        outputFeature = contextFeature+input_tensor0
+        print('TEST',contextFeature,cls_tensor)
+        outputFeature = contextFeature+cls_tensor
         #outputFeature = tf.concat([input_tensor, contextFeature], axis=-1)
         # Construct the variables for the NCE loss
         nce_weights = tf.Variable(
