@@ -346,7 +346,8 @@ def input_fn_builder(input_files,
                      max_seq_length,
                      max_predictions_per_seq,
                      is_training,
-                     num_cpu_threads=4):
+                     num_cpu_threads=4,
+                     winSize = 2):
   """Creates an `input_fn` closure to be passed to TPUEstimator."""
 
   def input_fn(params):
@@ -368,6 +369,10 @@ def input_fn_builder(input_files,
             tf.FixedLenFeature([max_predictions_per_seq], tf.float32),
         "next_sentence_labels":
             tf.FixedLenFeature([1], tf.int64),
+        "tip_ids":
+            tf.FixedLenFeature([winSize*2], tf.int64),
+        "pre_id":
+            tf.FixedLenFeature([1], tf.int64)
     }
 
     # For training, we want a lot of parallel reading and shuffling.
