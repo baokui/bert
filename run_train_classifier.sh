@@ -80,14 +80,14 @@ nohup python -u run_classifier_multiClass.py \
     --do_train=True \
     --do_eval=False >> log/labelmodel-multiClass-train.log 2>&1 &
 
-export CUDA_VISIBLE_DEVICES=6
+export CUDA_VISIBLE_DEVICES=4
 BERT_BASE_DIR=/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12
 nohup python -u run_classifier_multiClass1.py \
     --data_dir=/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel \
     --bert_config_file=$BERT_BASE_DIR/bert_config.json \
     --vocab_file=$BERT_BASE_DIR/vocab.txt \
     --train_batch_size=16 \
-    --init_checkpoint=model/S2V/model.ckpt-16000 \
+    --init_checkpoint=model/S2V/model.ckpt-21000 \
     --max_seq_length=128 \
     --num_train_epochs=10 \
     --do_predict=False \
