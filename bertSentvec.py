@@ -652,7 +652,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         else:
             is_real_example = tf.ones(tf.shape(label_ids), dtype=tf.float32)
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
-        (loss,per_example_loss,feature_qr,feature_dc) = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,labels, use_one_hot_embeddings)
+        (loss,per_example_loss,feature_qr,feature_dc) = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,label_ids, use_one_hot_embeddings)
         total_loss = loss
         tvars = tf.trainable_variables()
         initialized_variable_names = {}
