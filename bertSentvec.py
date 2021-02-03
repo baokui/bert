@@ -626,7 +626,7 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
     print("TEST:")
     score = cosine(feature_qr,feature_dc)
     print(score,labels)
-    c = tf.square(score - tf.to_float32(labels))
+    c = tf.square(score - tf.cast(labels, dtype=tf.float32))
     per_example_loss = tf.reduce_mean(c,axis=-1)
     loss = tf.reduce_mean(per_example_loss)
     return (loss,per_example_loss,feature_qr,feature_dc)
