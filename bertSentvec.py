@@ -171,7 +171,7 @@ class InputFeatures(object):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
-        self.label_id = label_ids
+        self.label_ids = label_ids
         self.is_real_example = is_real_example
 
 
