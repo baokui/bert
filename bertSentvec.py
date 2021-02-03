@@ -631,6 +631,36 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
     loss = tf.reduce_mean(per_example_loss)
     return (loss,per_example_loss,feature_qr,feature_dc)
 
+def get_assignment_map_from_checkpoint(tvars, init_checkpoint):
+  import re,collections
+  """Compute the union of the current variables and checkpoint variables."""
+  initialized_variable_names = {}
+  name_to_variable = collections.OrderedDict()
+  for var in tvars:
+    name = var.name
+    m = re.match("^(.*):\\d+$", name)
+    if m is not None:
+      name = m.group(1)
+    name_to_variable[name] = var
+  init_vars = tf.train.list_variables(init_checkpoint)
+  print('init_variable:',init_vars)
+  print('train_variable:',tvars)
+  assignment_map = collections.OrderedDict()
+  vars_others = []
+  for x in init_vars:
+    (name, var) = (x[0], x[1])
+    if 'qr/'+name in name_to_variable:
+      assignment_map[name] = 'qr/'+name
+    elif 'dc/'+name in name_to_variable:
+      assignment_map[name] = 'dc/'+name
+    elif name in name_to_variable:
+      assignment_map[name] = name
+    else:
+      vars_others.append(name)
+      continue
+    initialized_variable_names[name] = 1
+    initialized_variable_names[name + ":0"] = 1
+  return (assignment_map, initialized_variable_names,vars_others)
 
 def model_fn_builder(bert_config, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
@@ -660,6 +690,11 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         if init_checkpoint:
             (assignment_map, initialized_variable_names
              ) = modeling.get_assignment_map_from_checkpoint(tvars, init_checkpoint)
+            print('TEST:assignment_map0',assignment_map)
+            if len(assignment_map)==0:
+                (assignment_map, initialized_variable_names, vars_others
+                 ) = get_assignment_map_from_checkpoint(tvars, init_checkpoint)
+                print("assignment_map", assignment_map)
             if use_tpu:
                 def tpu_scaffold():
                     tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
