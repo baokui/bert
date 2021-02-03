@@ -27,6 +27,8 @@ import tokenization
 import tensorflow as tf
 import json
 import numpy as np
+import sys
+
 flags = tf.flags
 
 FLAGS = flags.FLAGS
@@ -621,6 +623,8 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
                 token_type_ids=segment_ids,
                 use_one_hot_embeddings=use_one_hot_embeddings)
             output_layer.append(model.get_pooled_output())
+    feature0 = output_layer[0]
+    feature1 = output_layer[1]
     feature_qr = tf.layers.dense(inputs=output_layer[0], units = 256, activation = tf.nn.relu)
     feature_dc = tf.layers.dense(inputs=output_layer[1], units = 256, activation = tf.nn.relu)
     print("TEST:")
@@ -629,7 +633,7 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
     c = tf.square(score - tf.cast(labels, dtype=tf.float32))
     per_example_loss = tf.reduce_mean(c,axis=-1)
     loss = tf.reduce_mean(per_example_loss)
-    return (loss,per_example_loss,feature_qr,feature_dc)
+    return (loss,score,per_example_loss,feature_qr,feature_dc,feature0,feature1)
 
 def get_assignment_map_from_checkpoint(tvars, init_checkpoint):
   import re,collections
@@ -681,7 +685,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         else:
             is_real_example = tf.ones(tf.shape(label_ids), dtype=tf.float32)
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
-        (loss,per_example_loss,feature_qr,feature_dc) = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,label_ids, use_one_hot_embeddings)
+        (loss,score,per_example_loss,feature_qr,feature_dc,feature0,feature1) = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,label_ids, use_one_hot_embeddings)
         total_loss = loss
         tvars = tf.trainable_variables()
         initialized_variable_names = {}
@@ -964,22 +968,109 @@ class bert_cls:
             result = {self.D_map_inv[i][j]: np.float(p[j]) for j in range(len(p))}
             R[self.L0[i]] = [label,score,result]
         return R,P
+def test(S,init='bert'):
+    tf.reset_default_graph()
+    FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
+    FLAGS.task_name = "sort"
+    FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
+    FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
+    FLAGS.init_checkpoint = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_model.ckpt"
+    FLAGS.output_dir = "model/" + FLAGS.task_name
+    label_lists = ['0', '1']
+    tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,FLAGS.init_checkpoint)
+    tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
+    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
+    is_training = False
+    max_seq_length = FLAGS.max_seq_length
+    input_ids = [tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_idsA'),tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_idsB')]
+    input_mask = [tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_maskA'),tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_maskB')]
+    segment_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='segment_ids')
+    labels = tf.placeholder(tf.int32, shape=[None, ], name='labels')
+    loss,score,per_example_loss,feature_qr,feature_dc,feature0,feature1 = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,labels, use_one_hot_embeddings=False)
+    sess = tf.Session()
+    saver = tf.train.Saver()
+    model_file = tf.train.latest_checkpoint(FLAGS.output_dir)
+    if model_file and init!='bert':
+        print('load model from checkpoint')
+        sess.run(tf.global_variables_initializer())
+        saver.restore(sess, model_file)
+    else:
+        print('load model from bert init')
+        tvars = tf.trainable_variables()
+        (assignment_map, initialized_variable_names, vars_others
+         ) = get_assignment_map_from_checkpoint(tvars, FLAGS.init_checkpoint)
+        tf.train.init_from_checkpoint(FLAGS.init_checkpoint, assignment_map)
+        sess.run(tf.global_variables_initializer())
+    # with open(os.path.join(FLAGS.data_dir,'test.txt'),'r') as f:
+    #     S = f.read().strip().split('\n')
+    # loss0 = []
+    # score0 = []
+    # for i in range(len(S)):
+    #     s = S[i].split('\t')
+    #     text_a = s[0]
+    #     text_b = s[1]
+    #     label = int(s[2])
+    #     example = InputExample(guid='guid', text_a=text_a, text_b = text_b, label='0')
+    #     feature = convert_single_example(10, example, label_lists, max_seq_length,tokenizer)
+    #     feed_dict = {input_ids[0]: [feature.input_ids[0]],
+    #                  input_ids[1]: [feature.input_ids[1]],
+    #                  segment_ids: [feature.segment_ids],
+    #                  input_mask[0]: [feature.input_mask[0]],
+    #                  input_mask[1]: [feature.input_mask[1]],
+    #                  labels:[label]}
+    #     y_qr,y_dc,y_score,loss_ = sess.run([feature_qr,feature_dc,score,loss], feed_dict=feed_dict)
+    #     score0.append(y_score[0])
+    #     loss0.append(loss_)
+    #     if i%100==0:
+    #         print(i,len(S),np.mean(loss0))
+    f0 = feature0 if init=='bert' else feature_qr
+    f1 = feature1 if init=='bert' else feature_dc
+    Q = [s.split('\t')[0] for s in S]
+    D = [s.split('\t')[1] for s in S]
+    Q = list(set(Q))
+    D = list(set(D))
+    Y_dc = []
+    for i in range(len(D)):
+        text_a = '我'
+        text_b = D[i]
+        example = InputExample(guid='guid', text_a=text_a, text_b=text_b, label='0')
+        feature = convert_single_example(10, example, label_lists, max_seq_length, tokenizer)
+        feed_dict = {input_ids[0]: [feature.input_ids[0]],
+                     input_ids[1]: [feature.input_ids[1]],
+                     segment_ids: [feature.segment_ids],
+                     input_mask[0]: [feature.input_mask[0]],
+                     input_mask[1]: [feature.input_mask[1]]}
+        y_dc = sess.run(f1, feed_dict=feed_dict)
+        y_dc = y_dc[0]
+        Y_dc.append(y_dc)
+        if i % 100 == 0:
+            print(i, len(D))
+    Y_qr = []
+    for i in range(len(Q)):
+        text_b = '我'
+        text_a = Q[i]
+        example = InputExample(guid='guid', text_a=text_a, text_b=text_b, label='0')
+        feature = convert_single_example(10, example, label_lists, max_seq_length, tokenizer)
+        feed_dict = {input_ids[0]: [feature.input_ids[0]],
+                     input_ids[1]: [feature.input_ids[1]],
+                     segment_ids: [feature.segment_ids],
+                     input_mask[0]: [feature.input_mask[0]],
+                     input_mask[1]: [feature.input_mask[1]]}
+        y_qr = sess.run(f0, feed_dict=feed_dict)
+        y_qr = y_qr[0]
+        Y_qr.append(y_qr)
+        if i % 100 == 0:
+            print(i, len(Q))
+    return Y_qr,Y_dc
 def demo():
-    model = bert_cls()
-    data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
-    path_test = os.path.join(data_dir,'test.txt')
-    output_dir = "model/label/all"
-    L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
-    with open(path_test,'r',encoding='utf-8') as f:
+    with open(os.path.join(FLAGS.data_dir,'test.txt'),'r') as f:
         S = f.read().strip().split('\n')
-    P = [[] for i in range(len(L0))]
-    for i in range(len(S)):
-        r,p = model.predict(S[i].split('\t')[0])
-        for j in range(len(L0)):
-            P[j].append('\t'.join(['%0.5f'%t for t in p[j]]))
-    for i in range(len(L0)):
-        with open(os.path.join(output_dir,'result_test_{}.txt'.format(L0[i])),'w') as f:
-            f.write('\n'.join(P[i]))
+    Y_qr0, Y_dc0 = test(S,init='bert')
+    Y_qr,Y_dc = test(S,init='train')
+    np.save('model/sort/Y_qr0.npy',Y_qr0)
+    np.save('model/sort/Y_qr.npy', Y_qr)
+    np.save('model/sort/Y_dc0.npy', Y_dc0)
+    np.save('model/sort/Y_dc.npy', Y_dc)
 
 if __name__ == "__main__":
     # flags.mark_flag_as_required("data_dir")
@@ -987,4 +1078,8 @@ if __name__ == "__main__":
     # flags.mark_flag_as_required("vocab_file")
     # flags.mark_flag_as_required("bert_config_file")
     # flags.mark_flag_as_required("output_dir")
-    tf.app.run()
+    #tf.app.run()
+    if sys.argv[1]=='test':
+        demo()
+    else:
+        main(0)
