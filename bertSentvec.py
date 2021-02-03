@@ -384,10 +384,10 @@ class sortProcessor(DataProcessor):
             lines = [t.split('\t') for t in lines]
         return lines
 
-    def get_train_examples(self, data_dir, idx_label):
+    def get_train_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_txt(os.path.join(data_dir, "train.txt")), "train", idx_label)
+            self._read_txt(os.path.join(data_dir, "train.txt")), "train")
 
     def get_dev_examples(self, data_dir, idx_label):
         """See base class."""
@@ -403,7 +403,7 @@ class sortProcessor(DataProcessor):
         """See base class."""
         return [[str(i) for i in range(len(D_label[k]))] for k in D_label]
 
-    def _create_examples(self, lines, set_type, idx_labels):
+    def _create_examples(self, lines, set_type):
         """Creates examples for the training and dev sets."""
         examples = []
         for (i, line) in enumerate(lines):
@@ -466,37 +466,37 @@ def convert_single_example(ex_index, example, label_lists, max_seq_length,
     # For classification tasks, the first vector (corresponding to [CLS]) is
     # used as the "sentence vector". Note that this only makes sense because
     # the entire model is fine-tuned.
-    tokens = []
-    segment_ids = []
-    tokens.append("[CLS]")
-    segment_ids.append(0)
+    tokensA = []
+    tokensB = []
+    segment_ids = [0 for _ in range(max_seq_length)]
+    tokensA.append("[CLS]")
+    tokensB.append("[CLS]")
     for token in tokens_a:
-        tokens.append(token)
-        segment_ids.append(0)
-    tokens.append("[SEP]")
-    segment_ids.append(0)
+        tokensA.append(token)
+    tokensA.append("[SEP]")
+    for token in tokens_b:
+        tokensB.append(token)
+    tokensB.append("[SEP]")
 
-    if tokens_b:
-        for token in tokens_b:
-            tokens.append(token)
-            segment_ids.append(1)
-        tokens.append("[SEP]")
-        segment_ids.append(1)
-
-    input_ids = tokenizer.convert_tokens_to_ids(tokens)
+    input_ids = [tokenizer.convert_tokens_to_ids(tokensA),tokenizer.convert_tokens_to_ids(tokensB)]
 
     # The mask has 1 for real tokens and 0 for padding tokens. Only real
     # tokens are attended to.
-    input_mask = [1] * len(input_ids)
+    input_maskA = [1] * len(input_ids[0])
+    input_maskB = [1] * len(input_ids[1])
 
     # Zero-pad up to the sequence length.
-    while len(input_ids) < max_seq_length:
-        input_ids.append(0)
-        input_mask.append(0)
-        segment_ids.append(0)
+    while len(input_ids[0]) < max_seq_length:
+        input_ids[0].append(0)
+        input_maskA.append(0)
+    while len(input_ids[1]) < max_seq_length:
+        input_ids[1].append(0)
+        input_maskB.append(0)
 
-    assert len(input_ids) == max_seq_length
-    assert len(input_mask) == max_seq_length
+    assert len(input_ids[0]) == max_seq_length
+    assert len(input_ids[1]) == max_seq_length
+    assert len(input_maskA) == max_seq_length
+    assert len(input_maskB) == max_seq_length
     assert len(segment_ids) == max_seq_length
     label_ids = []
     for k in range(len(label_lists)):
@@ -508,7 +508,7 @@ def convert_single_example(ex_index, example, label_lists, max_seq_length,
         label_ids.append(label_id)
     feature = InputFeatures(
         input_ids=input_ids,
-        input_mask=input_mask,
+        input_mask=[input_maskA,input_maskB],
         segment_ids=segment_ids,
         label_ids=label_ids,
         is_real_example=True)
@@ -781,6 +781,7 @@ def main(_):
         "xnli": XnliProcessor,
         "sort": sortProcessor,
     }
+    label_lists = ['0','1']
     tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
                                                   FLAGS.init_checkpoint)
 
@@ -805,9 +806,6 @@ def main(_):
 
     processor = processors[task_name]()
 
-    label_lists = processor.get_labels(D_alpha)
-    Num_labels = [len(label_list) for label_list in label_lists]
-
     tokenizer = tokenization.FullTokenizer(
         vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
 
@@ -831,14 +829,13 @@ def main(_):
     num_train_steps = None
     num_warmup_steps = None
     if FLAGS.do_train:
-        train_examples = processor.get_train_examples(FLAGS.data_dir, idx_label=idx0)
+        train_examples = processor.get_train_examples(FLAGS.data_dir, idx_label=-1)
         num_train_steps = int(
             len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
         num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
 
     model_fn = model_fn_builder(
         bert_config=bert_config,
-        Num_labels=Num_labels,
         init_checkpoint=FLAGS.init_checkpoint,
         learning_rate=FLAGS.learning_rate,
         num_train_steps=num_train_steps,
@@ -859,7 +856,7 @@ def main(_):
     if FLAGS.do_train:
         train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
         file_based_convert_examples_to_features(
-            train_examples, label_lists, FLAGS.max_seq_length, tokenizer, train_file)
+            train_examples, label_lists,FLAGS.max_seq_length, tokenizer, train_file)
         tf.logging.info("***** Running training *****")
         tf.logging.info("  Num examples = %d", len(train_examples))
         tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
@@ -868,105 +865,10 @@ def main(_):
             input_file=train_file,
             seq_length=FLAGS.max_seq_length,
             is_training=True,
-            drop_remainder=True,
-            Num_labels = Num_labels
+            drop_remainder=True
         )
         estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
 
-    if FLAGS.do_eval:
-        eval_examples = processor.get_dev_examples(FLAGS.data_dir, idx_label=idx0)
-        num_actual_eval_examples = len(eval_examples)
-        if FLAGS.use_tpu:
-            # TPU requires a fixed batch size for all batches, therefore the number
-            # of examples must be a multiple of the batch size, or else examples
-            # will get dropped. So we pad with fake examples which are ignored
-            # later on. These do NOT count towards the metric (all tf.metrics
-            # support a per-instance weight, and these get a weight of 0.0).
-            while len(eval_examples) % FLAGS.eval_batch_size != 0:
-                eval_examples.append(PaddingInputExample())
-
-        eval_file = os.path.join(FLAGS.output_dir, "eval.tf_record")
-        file_based_convert_examples_to_features(
-            eval_examples, label_lists, FLAGS.max_seq_length, tokenizer, eval_file)
-
-        tf.logging.info("***** Running evaluation *****")
-        tf.logging.info("  Num examples = %d (%d actual, %d padding)",
-                        len(eval_examples), num_actual_eval_examples,
-                        len(eval_examples) - num_actual_eval_examples)
-        tf.logging.info("  Batch size = %d", FLAGS.eval_batch_size)
-
-        # This tells the estimator to run through the entire set.
-        eval_steps = None
-        # However, if running eval on the TPU, you will need to specify the
-        # number of steps.
-        if FLAGS.use_tpu:
-            assert len(eval_examples) % FLAGS.eval_batch_size == 0
-            eval_steps = int(len(eval_examples) // FLAGS.eval_batch_size)
-
-        eval_drop_remainder = True if FLAGS.use_tpu else False
-        eval_input_fn = file_based_input_fn_builder(
-            input_file=eval_file,
-            seq_length=FLAGS.max_seq_length,
-            is_training=False,
-            drop_remainder=eval_drop_remainder,
-            Num_labels = Num_labels
-        )
-
-        result = estimator.evaluate(input_fn=eval_input_fn, steps=eval_steps)
-
-        output_eval_file = os.path.join(FLAGS.output_dir, "eval_results.txt")
-        with tf.gfile.GFile(output_eval_file, "w") as writer:
-            tf.logging.info("***** Eval results *****")
-            for key in sorted(result.keys()):
-                tf.logging.info("  %s = %s", key, str(result[key]))
-                writer.write("%s = %s\n" % (key, str(result[key])))
-
-    if FLAGS.do_predict:
-        predict_examples = processor.get_test_examples(FLAGS.data_dir, idx_label=idx0)
-        num_actual_predict_examples = len(predict_examples)
-        if FLAGS.use_tpu:
-            # TPU requires a fixed batch size for all batches, therefore the number
-            # of examples must be a multiple of the batch size, or else examples
-            # will get dropped. So we pad with fake examples which are ignored
-            # later on.
-            while len(predict_examples) % FLAGS.predict_batch_size != 0:
-                predict_examples.append(PaddingInputExample())
-
-        predict_file = os.path.join(FLAGS.output_dir, "predict.tf_record")
-        file_based_convert_examples_to_features(predict_examples, label_lists,
-                                                FLAGS.max_seq_length, tokenizer,
-                                                predict_file)
-
-        tf.logging.info("***** Running prediction*****")
-        tf.logging.info("  Num examples = %d (%d actual, %d padding)",
-                        len(predict_examples), num_actual_predict_examples,
-                        len(predict_examples) - num_actual_predict_examples)
-        tf.logging.info("  Batch size = %d", FLAGS.predict_batch_size)
-
-        predict_drop_remainder = True if FLAGS.use_tpu else False
-        predict_input_fn = file_based_input_fn_builder(
-            input_file=predict_file,
-            seq_length=FLAGS.max_seq_length,
-            is_training=False,
-            drop_remainder=predict_drop_remainder,
-            Num_labels = Num_labels)
-
-        result = estimator.predict(input_fn=predict_input_fn)
-
-        output_predict_file = os.path.join(FLAGS.output_dir, "test_results.tsv")
-        with tf.gfile.GFile(output_predict_file, "w") as writer:
-            num_written_lines = 0
-            tf.logging.info("***** Predict results *****")
-            for (i, prediction) in enumerate(result):
-                probabilities = prediction["probabilities"]
-                if i >= num_actual_predict_examples:
-                    break
-                output_line = "\t".join(
-                    str(class_probability)
-                    for class_probability in probabilities) + "\n"
-                writer.write(output_line)
-                num_written_lines += 1
-        assert num_written_lines == num_actual_predict_examples
 class bert_cls:
     def __init__(self,task_name='all',gpu='5'):
         #os.environ['CUDA_VISIBLE_DEVICES'] = gpu
