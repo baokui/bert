@@ -498,14 +498,7 @@ def convert_single_example(ex_index, example, label_lists, max_seq_length,
     assert len(input_maskA) == max_seq_length
     assert len(input_maskB) == max_seq_length
     assert len(segment_ids) == max_seq_length
-    label_ids = []
-    for k in range(len(label_lists)):
-        label_list = label_lists[k]
-        label_map = {}
-        for (i, label) in enumerate(label_list):
-            label_map[label] = i
-        label_id = label_map[example.label[k]]
-        label_ids.append(label_id)
+    label_ids = int(example.label)
     feature = InputFeatures(
         input_ids=input_ids,
         input_mask=[input_maskA,input_maskB],
@@ -531,8 +524,7 @@ def file_based_convert_examples_to_features(
         features["input_ids"] = create_int_feature(feature.input_ids)
         features["input_mask"] = create_int_feature(feature.input_mask)
         features["segment_ids"] = create_int_feature(feature.segment_ids)
-        for i in range(len(feature.label_id)):
-            features["label_ids_"+str(i)] = create_int_feature([feature.label_id[i]])
+        features["label_ids"] = create_int_feature([feature.label_ids])
         features["is_real_example"] = create_int_feature(
             [int(feature.is_real_example)])
         tf_example = tf.train.Example(features=tf.train.Features(feature=features))
@@ -623,7 +615,7 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
                 is_training=is_training,
                 input_ids=input_ids[k],
                 input_mask=input_mask[k],
-                token_type_ids=segment_ids[k],
+                token_type_ids=segment_ids,
                 use_one_hot_embeddings=use_one_hot_embeddings)
             output_layer.append(model.get_pooled_output())
     feature_qr = tf.layers.dense(inputs=output_layer[0], units = 256, activation = tf.nn.relu)
@@ -829,7 +821,7 @@ def main(_):
     num_train_steps = None
     num_warmup_steps = None
     if FLAGS.do_train:
-        train_examples = processor.get_train_examples(FLAGS.data_dir, idx_label=-1)
+        train_examples = processor.get_train_examples(FLAGS.data_dir)
         num_train_steps = int(
             len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
         num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
