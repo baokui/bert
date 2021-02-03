@@ -649,10 +649,8 @@ def get_assignment_map_from_checkpoint(tvars, init_checkpoint):
   vars_others = []
   for x in init_vars:
     (name, var) = (x[0], x[1])
-    if 'qr/'+name in name_to_variable:
-      assignment_map[name] = 'qr/'+name
-    elif 'dc/'+name in name_to_variable:
-      assignment_map[name] = 'dc/'+name
+    if 'lm/'+name in name_to_variable:
+      assignment_map[name] = 'lm/'+name
     elif name in name_to_variable:
       assignment_map[name] = name
     else:
