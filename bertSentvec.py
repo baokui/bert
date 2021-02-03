@@ -535,7 +535,7 @@ def file_based_convert_examples_to_features(
 
 
 def file_based_input_fn_builder(input_file, seq_length, is_training,
-                                drop_remainder,Num_labels):
+                                drop_remainder):
     """Creates an `input_fn` closure to be passed to TPUEstimator."""
 
     name_to_features = {
@@ -544,8 +544,7 @@ def file_based_input_fn_builder(input_file, seq_length, is_training,
         "segment_ids": tf.FixedLenFeature([seq_length], tf.int64),
         "is_real_example": tf.FixedLenFeature([], tf.int64),
     }
-    for i in range(len(Num_labels)):
-        name_to_features["label_ids_"+str(i)] = tf.FixedLenFeature([], tf.int64)
+    name_to_features["label_ids"] = tf.FixedLenFeature([], tf.int64)
 
     def _decode_record(record, name_to_features):
         """Decodes a record to a TensorFlow example."""
