@@ -626,11 +626,13 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
                 token_type_ids=segment_ids[k],
                 use_one_hot_embeddings=use_one_hot_embeddings)
             output_layer.append(model.get_pooled_output())
-    score = cosine(output_layer[0],output_layer[1])
+    feature_qr = tf.layers.dense(inputs=output_layer[0], units = 256, activation = tf.nn.relu)
+    feature_dc = tf.layers.dense(inputs=output_layer[1], units = 256, activation = tf.nn.relu)
+    score = cosine(feature_qr,feature_dc)
     c = tf.square(score - labels)
     per_example_loss = tf.reduce_mean(c,axis=-1)
     loss = tf.reduce_mean(per_example_loss)
-    return (loss,per_example_loss)
+    return (loss,per_example_loss,feature_qr,feature_dc)
 
 
 def model_fn_builder(bert_config, init_checkpoint, learning_rate,
@@ -653,7 +655,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         else:
             is_real_example = tf.ones(tf.shape(label_ids), dtype=tf.float32)
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
-        (loss,per_example_loss) = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,labels, use_one_hot_embeddings)
+        (loss,per_example_loss,feature_qr,feature_dc) = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,labels, use_one_hot_embeddings)
         total_loss = loss
         tvars = tf.trainable_variables()
         initialized_variable_names = {}
@@ -729,8 +731,7 @@ def input_fn_builder(features, seq_length, is_training, drop_remainder,Num_label
                     shape=[num_examples, seq_length],
                     dtype=tf.int32),
         }
-        for i in range(len(Num_labels)):
-            d0["label_ids"] = tf.constant(all_label_ids, shape=[num_examples], dtype=tf.float32)
+        d0["label_ids"] = tf.constant(all_label_ids, shape=[num_examples], dtype=tf.float32)
         d = tf.data.Dataset.from_tensor_slices(d0)
 
         if is_training:
