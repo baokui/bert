@@ -1063,6 +1063,7 @@ def test(S,init='bert'):
             print(i, len(Q))
     return Y_qr,Y_dc
 def demo():
+    FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
     with open(os.path.join(FLAGS.data_dir,'test.txt'),'r') as f:
         S = f.read().strip().split('\n')
     Y_qr0, Y_dc0 = test(S,init='bert')
