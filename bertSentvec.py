@@ -521,8 +521,10 @@ def file_based_convert_examples_to_features(
             f = tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
             return f
         features = collections.OrderedDict()
-        features["input_ids"] = [create_int_feature(feature.input_ids[0]),create_int_feature(feature.input_ids[1])]
-        features["input_mask"] = [create_int_feature(feature.input_mask[0]),create_int_feature(feature.input_mask[1])]
+        features["input_idsA"] = create_int_feature(feature.input_ids[0])
+        features["input_idsB"] = create_int_feature(feature.input_ids[1])
+        features["input_maskA"] = create_int_feature(feature.input_mask[0])
+        features["input_maskB"] = create_int_feature(feature.input_mask[1])
         features["segment_ids"] = create_int_feature(feature.segment_ids)
         features["label_ids"] = create_int_feature([feature.label_ids])
         features["is_real_example"] = create_int_feature(
@@ -637,8 +639,8 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         for name in sorted(features.keys()):
             tf.logging.info("  name = %s, shape = %s" % (name, features[name].shape))
         print(features)
-        input_ids = features["input_ids"]
-        input_mask = features["input_mask"]
+        input_ids = [features["input_idsA"],features["input_idsB"]]
+        input_mask = [features["input_maskA"],features["input_maskB"]]
         segment_ids = features["segment_ids"]
         label_ids = features["label_ids"]
         is_real_example = None
