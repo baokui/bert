@@ -627,9 +627,7 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
     feature1 = output_layer[1]
     feature_qr = tf.layers.dense(inputs=output_layer[0], units = 256, activation = tf.nn.relu)
     feature_dc = tf.layers.dense(inputs=output_layer[1], units = 256, activation = tf.nn.relu)
-    print("TEST:")
     score = cosine(feature_qr,feature_dc)
-    print(score,labels)
     c = tf.square(score - tf.cast(labels, dtype=tf.float32))
     per_example_loss = tf.reduce_mean(c,axis=-1)
     loss = tf.reduce_mean(per_example_loss)
@@ -904,71 +902,11 @@ def main(_):
         )
         estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
 
-class bert_cls:
-    def __init__(self,task_name='all',gpu='5'):
-        #os.environ['CUDA_VISIBLE_DEVICES'] = gpu
-        data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
-        bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
-        vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
-        self.max_seq_length = 128
-        output_dir = "model/label/" + task_name
-        path_map = os.path.join(data_dir, 'map_index.json')
-        path_alpha = os.path.join(data_dir, 'label_alpha.json')
-        D_map = json.load(open(path_map, 'r'))
-        D_alpha0 = json.load(open(path_alpha, 'r'))
-        D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
-        self.L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
-        self.D_map_inv = [{D_map[self.L0[i]][t]:t for t in D_map[self.L0[i]]} for i in range(len(self.L0))]
-        tf.logging.set_verbosity(tf.logging.INFO)
-        is_training = False
-        processors = {
-            "cola": ColaProcessor,
-            "mnli": MnliProcessor,
-            "mrpc": MrpcProcessor,
-            "xnli": XnliProcessor,
-            "all": LabelClass
-        }
-        bert_config = modeling.BertConfig.from_json_file(bert_config_file)
-        processor = processors[task_name.lower()]()
-        self.tokenizer = tokenization.FullTokenizer(
-            vocab_file=vocab_file, do_lower_case=True)
-        tf.reset_default_graph()
-        self.input_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_ids')
-        self.input_mask = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_mask')
-        self.segment_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='segment_ids')
-        self.label_lists = processor.get_labels(D_alpha)
-        self.Num_labels = [len(label_list) for label_list in self.label_lists]
-        self.Label_ids = [tf.placeholder(tf.int32, shape=[None, ], name="label_ids_" + str(i)) for i in
-                          range(len(self.Num_labels))]
-        (Loss, LossList, LogitsList, self.ProbList, Per_example_loss) = create_model(
-            bert_config, is_training, self.input_ids, self.input_mask, self.segment_ids, self.Label_ids,
-            self.Num_labels, use_one_hot_embeddings=False)
-        self.saver = tf.train.Saver(max_to_keep=None)
-        self.session = tf.Session()
-        self.session.run(tf.global_variables_initializer())
-        init_checkpoint = tf.train.latest_checkpoint(output_dir)
-        self.saver.restore(self.session, init_checkpoint)
-    def predict(self,inputStr):
-        example = InputExample(guid='guid', text_a=inputStr, label=['0' for _ in range(len(self.Num_labels))])
-        feature = convert_single_example(10, example, self.label_lists, self.max_seq_length, self.tokenizer)
-        X_input_ids = feature.input_ids
-        X_segment_ids = feature.segment_ids
-        X_input_mask = feature.input_mask
-        feed_dict = {self.input_ids: [X_input_ids], self.segment_ids: [X_segment_ids],
-                     self.input_mask: [X_input_mask]}
-        P = self.session.run(self.ProbList, feed_dict=feed_dict)
-        P = [p[0] for p in P]
-        R = {}
-        for i in range(len(P)):
-            p = P[i]
-            idx = np.argmax(p)
-            label = self.D_map_inv[i][idx]
-            score = np.float(p[idx])
-            p = list(p)
-            result = {self.D_map_inv[i][j]: np.float(p[j]) for j in range(len(p))}
-            R[self.L0[i]] = [label,score,result]
-        return R,P
-def test(S,init='bert'):
+def test(init='bert',batch_size=32):
+    FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
+    with open(os.path.join(FLAGS.data_dir, 'test.txt'), 'r') as f:
+        S = f.read().strip().split('\n')
+    S = [s.split('\t') for s in S]
     tf.reset_default_graph()
     FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
     FLAGS.task_name = "sort"
@@ -1001,78 +939,169 @@ def test(S,init='bert'):
          ) = get_assignment_map_from_checkpoint(tvars, FLAGS.init_checkpoint)
         tf.train.init_from_checkpoint(FLAGS.init_checkpoint, assignment_map)
         sess.run(tf.global_variables_initializer())
-    # with open(os.path.join(FLAGS.data_dir,'test.txt'),'r') as f:
-    #     S = f.read().strip().split('\n')
-    # loss0 = []
-    # score0 = []
-    # for i in range(len(S)):
-    #     s = S[i].split('\t')
-    #     text_a = s[0]
-    #     text_b = s[1]
-    #     label = int(s[2])
-    #     example = InputExample(guid='guid', text_a=text_a, text_b = text_b, label='0')
-    #     feature = convert_single_example(10, example, label_lists, max_seq_length,tokenizer)
-    #     feed_dict = {input_ids[0]: [feature.input_ids[0]],
-    #                  input_ids[1]: [feature.input_ids[1]],
-    #                  segment_ids: [feature.segment_ids],
-    #                  input_mask[0]: [feature.input_mask[0]],
-    #                  input_mask[1]: [feature.input_mask[1]],
-    #                  labels:[label]}
-    #     y_qr,y_dc,y_score,loss_ = sess.run([feature_qr,feature_dc,score,loss], feed_dict=feed_dict)
-    #     score0.append(y_score[0])
-    #     loss0.append(loss_)
-    #     if i%100==0:
-    #         print(i,len(S),np.mean(loss0))
+    Loss = []
+    Label = []
+    Score = []
+    i0 = []
+    i1 = []
+    seg = []
+    m0 = []
+    m1 = []
+    L = []
+    for i in range(len(S)):
+        text_a = S[i][0]
+        text_b = S[i][1]
+        label = int(S[i][2])
+        example = InputExample(guid='guid', text_a=text_a, text_b=text_b, label='0')
+        feature = convert_single_example(10, example, label_lists, max_seq_length, tokenizer)
+        i0.append(feature.input_ids[0])
+        i1.append(feature.input_ids[1])
+        seg.append(feature.segment_ids)
+        m0.append(feature.input_mask[0])
+        m1.append(feature.input_mask[1])
+        L.append(label)
+        if len(i0)>=batch_size:
+            feed_dict = {input_ids[0]: i0,
+                         input_ids[1]: i1,
+                         segment_ids: seg,
+                         input_mask[0]: m0,
+                         input_mask[1]: m1,
+                         labels:L}
+            loss_, score_ = sess.run([loss,score], feed_dict=feed_dict)
+            Loss.append(loss_)
+            Score.extend(score_)
+            Label.extend(L)
+            i0 = []
+            i1 = []
+            seg = []
+            m0 = []
+            m1 = []
+            L = []
+        if i % 100 == 0:
+            print(i, len(S), np.mean(Loss))
+def sentEmb(D,mode='qr',init='bert',batch_size=32):
+    tf.reset_default_graph()
+    FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
+    FLAGS.task_name = "sort"
+    FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
+    FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
+    FLAGS.init_checkpoint = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_model.ckpt"
+    FLAGS.output_dir = "model/" + FLAGS.task_name
+    label_lists = ['0', '1']
+    tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,FLAGS.init_checkpoint)
+    tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
+    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
+    is_training = False
+    max_seq_length = FLAGS.max_seq_length
+    input_ids = [tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_idsA'),tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_idsB')]
+    input_mask = [tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_maskA'),tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_maskB')]
+    segment_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='segment_ids')
+    labels = tf.placeholder(tf.int32, shape=[None, ], name='labels')
+    loss,score,per_example_loss,feature_qr,feature_dc,feature0,feature1 = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,labels, use_one_hot_embeddings=False)
+    sess = tf.Session()
+    saver = tf.train.Saver()
+    model_file = tf.train.latest_checkpoint(FLAGS.output_dir)
+    if model_file and init!='bert':
+        print('load model from checkpoint')
+        sess.run(tf.global_variables_initializer())
+        saver.restore(sess, model_file)
+    else:
+        print('load model from bert init')
+        tvars = tf.trainable_variables()
+        (assignment_map, initialized_variable_names, vars_others
+         ) = get_assignment_map_from_checkpoint(tvars, FLAGS.init_checkpoint)
+        tf.train.init_from_checkpoint(FLAGS.init_checkpoint, assignment_map)
+        sess.run(tf.global_variables_initializer())
     f0 = feature0 if init=='bert' else feature_qr
     f1 = feature1 if init=='bert' else feature_dc
-    Q = [s.split('\t')[0] for s in S]
-    D = [s.split('\t')[1] for s in S]
-    Q = list(set(Q))
-    D = list(set(D))
+    sent2vec = f0 if mode=='qr' else f1
     Y_dc = []
+    i0 = []
+    i1 = []
+    seg = []
+    m0 = []
+    m1 = []
     for i in range(len(D)):
-        text_a = '我'
-        text_b = D[i]
+        if mode=='qr':
+            text_b = '我'
+            text_a = D[i]
+        else:
+            text_a = '我'
+            text_b = D[i]
         example = InputExample(guid='guid', text_a=text_a, text_b=text_b, label='0')
         feature = convert_single_example(10, example, label_lists, max_seq_length, tokenizer)
-        feed_dict = {input_ids[0]: [feature.input_ids[0]],
-                     input_ids[1]: [feature.input_ids[1]],
-                     segment_ids: [feature.segment_ids],
-                     input_mask[0]: [feature.input_mask[0]],
-                     input_mask[1]: [feature.input_mask[1]]}
-        y_dc = sess.run(f1, feed_dict=feed_dict)
-        y_dc = y_dc[0]
-        Y_dc.append(y_dc)
+        i0.append(feature.input_ids[0])
+        i1.append(feature.input_ids[1])
+        seg.append(feature.segment_ids)
+        m0.append(feature.input_mask[0])
+        m1.append(feature.input_mask[1])
+        if len(i0)>=batch_size:
+            feed_dict = {input_ids[0]: i0,
+                         input_ids[1]: i1,
+                         segment_ids: seg,
+                         input_mask[0]: m0,
+                         input_mask[1]: m1}
+            y_dc = sess.run(sent2vec, feed_dict=feed_dict)
+            Y_dc.extend(y_dc)
+            i0 = []
+            i1 = []
+            seg = []
+            m0 = []
+            m1 = []
         if i % 100 == 0:
             print(i, len(D))
-    Y_qr = []
-    for i in range(len(Q)):
-        text_b = '我'
-        text_a = Q[i]
-        example = InputExample(guid='guid', text_a=text_a, text_b=text_b, label='0')
-        feature = convert_single_example(10, example, label_lists, max_seq_length, tokenizer)
-        feed_dict = {input_ids[0]: [feature.input_ids[0]],
-                     input_ids[1]: [feature.input_ids[1]],
-                     segment_ids: [feature.segment_ids],
-                     input_mask[0]: [feature.input_mask[0]],
-                     input_mask[1]: [feature.input_mask[1]]}
-        y_qr = sess.run(f0, feed_dict=feed_dict)
-        y_qr = y_qr[0]
-        Y_qr.append(y_qr)
-        if i % 100 == 0:
-            print(i, len(Q))
-    return Y_qr,Y_dc
+    if len(i0)>0:
+        feed_dict = {input_ids[0]: i0,
+                         input_ids[1]: i1,
+                         segment_ids: seg,
+                         input_mask[0]: m0,
+                         input_mask[1]: m1}
+        y_dc = sess.run(sent2vec, feed_dict=feed_dict)
+        Y_dc.extend(y_dc)
+    return Y_dc
+from sklearn import preprocessing
+def norm(V1):
+    V1 = preprocessing.scale(V1, axis=-1)
+    V1 = V1 / np.sqrt(len(V1[0]))
+    return V1
 def demo():
     FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
     with open(os.path.join(FLAGS.data_dir,'test.txt'),'r') as f:
         S = f.read().strip().split('\n')
-    Y_qr0, Y_dc0 = test(S,init='bert')
-    Y_qr,Y_dc = test(S,init='train')
-    np.save('model/sort/Y_qr0.npy',Y_qr0)
-    np.save('model/sort/Y_qr.npy', Y_qr)
-    np.save('model/sort/Y_dc0.npy', Y_dc0)
-    np.save('model/sort/Y_dc.npy', Y_dc)
+    Q = [s.split('\t')[0] for s in S]
+    D = [s.split('\t')[1] for s in S]
+    Q = list(set(Q))[:1000]
+    D = list(set(D))
+    Y_qr0 = sentEmb(Q[:1000],mode='qr',init='bert')
+    Y_qr1 = sentEmb(Q[:1000], mode='qr', init='train')
+    Y_dc0 = sentEmb(D, mode='dc', init='bert')
+    Y_dc1 = sentEmb(D, mode='dc', init='train')
+    # np.save('model/sort/Y_qr0.npy',Y_qr0)
+    # np.save('model/sort/Y_qr.npy', Y_qr)
+    # np.save('model/sort/Y_dc0.npy', Y_dc0)
+    # np.save('model/sort/Y_dc.npy', Y_dc)
 
+    vq = norm(Y_qr0[:1000])
+    vd = norm(Y_dc0)
+    s = np.dot(vq,np.transpose(vd))
+    idx0 = np.argsort(-s,axis=-1)
+    vq = norm(Y_qr1[:1000])
+    vd = norm(Y_dc1)
+    s = np.dot(vq, np.transpose(vd))
+    idx = np.argsort(-s, axis=-1)
+    R = []
+    for i in range(1000):
+        r0 = [D[idx0[i][j]] for j in range(10)]
+        r1 = [D[idx[i][j]] for j in range(10)]
+        d = {'input':Q[i],'result0':r0,'result':r1}
+        R.append(d)
+    for r in R:
+        print(r['input'])
+        print('result0:\n' + '\n'.join(r['result0']))
+        print('result1:\n' + '\n'.join(r['result']))
+        print('-----------------')
+    with open('model/sort/test_predict.json','w') as f:
+        json.dump(R,f,ensure_ascii=False,indent=4)
 if __name__ == "__main__":
     # flags.mark_flag_as_required("data_dir")
     # flags.mark_flag_as_required("task_name")
