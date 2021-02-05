@@ -901,7 +901,23 @@ def main(_):
             drop_remainder=True
         )
         estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
-
+def validation(prob,label,thr = 0.5):
+    def calAUC(prob, labels):
+        f = list(zip(prob, labels))
+        rank = [values2 for values1, values2 in sorted(f, key=lambda x: x[0])]
+        rankList = [i + 1 for i in range(len(rank)) if rank[i] == 1]
+        posNum = 0.0
+        negNum = 0.0
+        for i in range(len(labels)):
+            if (labels[i] == 1):
+                posNum += 1
+            else:
+                negNum += 1
+        auc = (sum(rankList) - (posNum * (posNum + 1)) / 2) / (posNum * negNum)
+        return auc
+    auc = calAUC(prob,label)
+    acc = sum([int(prob[i]>=thr)==label[i] for i in range(len(label))])/len(prob)
+    return auc,acc
 def test(init='bert',batch_size=32):
     FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
     with open(os.path.join(FLAGS.data_dir, 'test.txt'), 'r') as f:
@@ -968,6 +984,11 @@ def test(init='bert',batch_size=32):
                          input_mask[1]: m1,
                          labels:L}
             loss_, score_ = sess.run([loss,score], feed_dict=feed_dict)
+            if init=='bert':
+                feature0_,feature1_ = sess.run([feature0,feature1],feed_dict=feed_dict)
+                feature0_ = norm(feature0_)
+                feature1_ = norm(feature1_)
+                score_ = [feature0_[i].dot(feature1_[i]) for i in range(len(feature1_))]
             Loss.append(loss_)
             Score.extend(score_)
             Label.extend(L)
@@ -977,9 +998,10 @@ def test(init='bert',batch_size=32):
             m0 = []
             m1 = []
             L = []
-        if i % 100 == 0:
-            print(i, len(S), np.mean(Loss))
-def sentEmb(D,mode='qr',init='bert',batch_size=32):
+        if i % 100 == 0 and i>0:
+            auc,acc = validation(Score,Label)
+            print(i, len(S), np.mean(Loss),auc,acc)
+def sentEmb(D,mode='qr',init='bert',batch_size=32,initial_checkpoint=None):
     tf.reset_default_graph()
     FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
     FLAGS.task_name = "sort"
@@ -1000,7 +1022,10 @@ def sentEmb(D,mode='qr',init='bert',batch_size=32):
     loss,score,per_example_loss,feature_qr,feature_dc,feature0,feature1 = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,labels, use_one_hot_embeddings=False)
     sess = tf.Session()
     saver = tf.train.Saver()
-    model_file = tf.train.latest_checkpoint(FLAGS.output_dir)
+    if initial_checkpoint:
+        model_file = initial_checkpoint
+    else:
+        model_file = tf.train.latest_checkpoint(FLAGS.output_dir)
     if model_file and init!='bert':
         print('load model from checkpoint')
         sess.run(tf.global_variables_initializer())
@@ -1102,6 +1127,26 @@ def demo():
         print('-----------------')
     with open('model/sort/test_predict.json','w') as f:
         json.dump(R,f,ensure_ascii=False,indent=4)
+def demo_retrieval():
+    initial_checkpoint = 'model/sort/model.ckpt-58000'
+    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121.json','r') as f:
+        D = json.load(f)
+    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121.json','r') as f:
+        Q = json.load(f)
+    Sd = [d['content'] for d in D]
+    Sq = [d['content'] for d in Q]
+    Y_dc = sentEmb(Sd, mode='dc', init='train',initial_checkpoint=initial_checkpoint)
+    Y_qr = sentEmb(Sq,mode='qr',init='train',initial_checkpoint=initial_checkpoint)
+    Y_dc = norm(Y_dc)
+    Y_qr = norm(Y_qr)
+    for i in range(len(D)):
+        D[i]['bert-sort'] = list(Y_dc[i])
+    for i in range(len(Q)):
+        Q[i]['bert-sort'] = list(Y_qr[i])
+    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121_bertsort.json','w') as f:
+        json.dump(D,f,ensure_ascii=False,indent=4)
+    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121_bertsort.json','w') as f:
+        json.dump(Q,f,ensure_ascii=False,indent=4)
 if __name__ == "__main__":
     # flags.mark_flag_as_required("data_dir")
     # flags.mark_flag_as_required("task_name")
