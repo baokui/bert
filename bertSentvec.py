@@ -423,6 +423,8 @@ class sortProcessor(DataProcessor):
                 labels = tokenization.convert_to_unicode(line[-1])
             examples.append(
                 InputExample(guid=guid, text_a=text_a, text_b=text_b, label=labels))
+            if i%1000==0:
+                print('dataprocess line {} from {}'.format(i,len(lines)))
         return examples
 
 

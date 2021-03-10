@@ -13,6 +13,6 @@ nohup python -u bertSentvec.py \
     --num_train_epochs=3 \
     --do_predict=False \
     --do_train=True \
-    --do_eval=False
+    --do_eval=False >> log/bertSentvec-new.log 2>&1 &
 
 
