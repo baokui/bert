@@ -126,6 +126,9 @@ flags.DEFINE_integer(
     "num_tpu_cores", 8,
     "Only used if `use_tpu` is True. Total number of TPU cores to use.")
 
+flags.DEFINE_string(
+    "mode", None,
+    "mode")
 
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
@@ -800,12 +803,12 @@ def netConfig():
     tvars = [v for v in tf.trainable_variables()]
     for t in tvars:
         print(t)
-def main(_):
-    FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
-    FLAGS.task_name = "sort"
-    FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
-    FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
-    FLAGS.init_checkpoint = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_model.ckpt"
+def train(_):
+    # FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
+    # FLAGS.task_name = "sort"
+    # FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
+    # FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
+    # FLAGS.init_checkpoint = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_model.ckpt"
     FLAGS.output_dir = "model/" + FLAGS.task_name
     processors = {
         "cola": ColaProcessor,
@@ -834,10 +837,8 @@ def main(_):
 
     task_name = FLAGS.task_name.lower()
 
-    if task_name not in processors:
-        raise ValueError("Task not found: %s" % (task_name))
-
-    processor = processors[task_name]()
+    #processor = processors[task_name]()
+    processor = sortProcessor()
 
     tokenizer = tokenization.FullTokenizer(
         vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
@@ -918,7 +919,7 @@ def validation(prob,label,thr = 0.5):
     auc = calAUC(prob,label)
     acc = sum([int(prob[i]>=thr)==label[i] for i in range(len(label))])/len(prob)
     return auc,acc
-def test(init='bert',batch_size=32):
+def test0(init='bert',batch_size=32):
     FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
     with open(os.path.join(FLAGS.data_dir, 'test.txt'), 'r') as f:
         S = f.read().strip().split('\n')
@@ -1089,7 +1090,7 @@ def norm(V1):
     V1 = preprocessing.scale(V1, axis=-1)
     V1 = V1 / np.sqrt(len(V1[0]))
     return V1
-def demo():
+def test():
     FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
     with open(os.path.join(FLAGS.data_dir,'test.txt'),'r') as f:
         S = f.read().strip().split('\n')
@@ -1147,6 +1148,40 @@ def demo_retrieval():
         json.dump(D,f,ensure_ascii=False,indent=4)
     with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121_bertsort.json','w') as f:
         json.dump(Q,f,ensure_ascii=False,indent=4)
+def demo_retrieval_pretrain():
+    initial_checkpoint = 'model/sort/model.ckpt-58000'
+    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121.json','r') as f:
+        D = json.load(f)
+    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121.json','r') as f:
+        Q = json.load(f)
+    Sd = [d['content'] for d in D]
+    Sq = [d['content'] for d in Q]
+    Y_dc = sentEmb(Sd, mode='dc', init='bert',initial_checkpoint=initial_checkpoint)
+    Y_qr = sentEmb(Sq,mode='qr',init='bert',initial_checkpoint=initial_checkpoint)
+    Y_dc = norm(Y_dc)
+    Y_qr = norm(Y_qr)
+    for i in range(len(D)):
+        D[i]['bert-pre'] = list(Y_dc[i])
+    for i in range(len(Q)):
+        Q[i]['bert-pre'] = list(Y_qr[i])
+    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121_bertpre.json','w') as f:
+        json.dump(D,f,ensure_ascii=False,indent=4)
+    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121_bertpre.json','w') as f:
+        json.dump(Q,f,ensure_ascii=False,indent=4)
+def demo_test():
+    initial_checkpoint = 'model/sort/model.ckpt-58000'
+    with open('/search/odin/guobk/vpa/vpa-godText-log/allScene_new/data/tmp.txt','r') as f:
+        S = f.read().strip().split('\n')
+    Y_qr = sentEmb(S[:1000], mode='qr', init='bert', initial_checkpoint=initial_checkpoint)
+    Y_qr = norm(Y_qr)
+    Q = []
+    for i in range(len(Y_qr)):
+        d = {'id':i}
+        d['bert-pre'] = list(Y_qr[i])
+        d['content'] = S[i]
+        Q.append(d)
+    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries023_bertpre.json', 'w') as f:
+        json.dump(Q, f, ensure_ascii=False, indent=4)
 if __name__ == "__main__":
     # flags.mark_flag_as_required("data_dir")
     # flags.mark_flag_as_required("task_name")
@@ -1154,7 +1189,7 @@ if __name__ == "__main__":
     # flags.mark_flag_as_required("bert_config_file")
     # flags.mark_flag_as_required("output_dir")
     #tf.app.run()
-    if sys.argv[1]=='test':
-        demo()
+    if FLAGS.do_train:
+        train(0)
     else:
-        main(0)
+        test()
