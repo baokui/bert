@@ -72,7 +72,7 @@ flags.DEFINE_integer(
 
 flags.DEFINE_bool("do_train", True, "Whether to run training.")
 
-flags.DEFINE_bool("do_eval", True, "Whether to run eval on the dev set.")
+flags.DEFINE_bool("do_eval", False, "Whether to run eval on the dev set.")
 
 flags.DEFINE_bool(
     "do_predict", False,
@@ -864,6 +864,7 @@ def train(_):
     train_examples = None
     num_train_steps = None
     num_warmup_steps = None
+    print('Data processing')
     if FLAGS.do_train:
         tf.logging.info("***** Data processing *****")
         train_examples = processor.get_train_examples(FLAGS.data_dir)
@@ -871,7 +872,7 @@ def train(_):
             len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
         num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
         tf.logging.info("***** Data processing over *****")
-
+    print('Initial from ckpt...')
     model_fn = model_fn_builder(
         bert_config=bert_config,
         init_checkpoint=FLAGS.init_checkpoint,

@@ -10,9 +10,6 @@ nohup python -u bertSentvec.py \
     --train_batch_size=32 \
     --init_checkpoint=/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_model.ckpt \
     --max_seq_length=128 \
-    --num_train_epochs=3 \
-    --do_predict=False \
-    --do_train=True \
-    --do_eval=False >> log/bertSentvec-new.log 2>&1 &
+    --num_train_epochs=3 >> log/bertSentvec-new.log 2>&1 &
 
 
