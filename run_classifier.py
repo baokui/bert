@@ -943,7 +943,7 @@ def main(_):
     estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
 
   if FLAGS.do_eval:
-    eval_examples = processor.get_dev_examples(FLAGS.data_dir,idx_label=idx0+1)
+    eval_examples = processor.get_dev_examples(FLAGS.data_dir,idx_label=idx_label)
     num_actual_eval_examples = len(eval_examples)
     if FLAGS.use_tpu:
       # TPU requires a fixed batch size for all batches, therefore the number
@@ -989,7 +989,7 @@ def main(_):
         writer.write("%s = %s\n" % (key, str(result[key])))
 
   if FLAGS.do_predict:
-    predict_examples = processor.get_test_examples(FLAGS.data_dir,idx_label=idx0+1)
+    predict_examples = processor.get_test_examples(FLAGS.data_dir,idx_label=idx_label)
     num_actual_predict_examples = len(predict_examples)
     if FLAGS.use_tpu:
       # TPU requires a fixed batch size for all batches, therefore the number
