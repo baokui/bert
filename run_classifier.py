@@ -838,7 +838,7 @@ def main(_):
       idx_label = idx0 + 1
   elif L=='newlabel':
       D_alpha = json.load(open(os.path.join(FLAGS.data_dir,'D_label.json'),'r'))
-      idx_label = 0
+      idx_label = 1
   tf.logging.set_verbosity(tf.logging.INFO)
 
   processors = {
