@@ -824,15 +824,21 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
 
 def main(_):
   import json
-  path_map = os.path.join(FLAGS.data_dir, 'map_index.json')
-  path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
-  D_map = json.load(open(path_map, 'r'))
-  D_alpha0 = json.load(open(path_alpha, 'r'))
-  D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
-  path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
   L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
   L = FLAGS.task_name
-  idx0 = L0.index(L)
+  if L in L0:
+      path_map = os.path.join(FLAGS.data_dir, 'map_index.json')
+      path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
+      D_map = json.load(open(path_map, 'r'))
+      D_alpha0 = json.load(open(path_alpha, 'r'))
+      D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
+      path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
+      idx0 = L0.index(L)
+      D_alpha = D_alpha[L]
+      idx_label = idx0 + 1
+  elif L=='newlabel':
+      D_alpha = json.load(open(os.path.join(FLAGS.data_dir,'D_label'),'r'))
+      idx_label = 0
   tf.logging.set_verbosity(tf.logging.INFO)
 
   processors = {
@@ -843,7 +849,8 @@ def main(_):
       "使用场景p0":LabelClass,
       "表达对象p0":LabelClass,
       '表达者性别倾向p0':LabelClass,
-      '文字风格':LabelClass
+      '文字风格':LabelClass,
+      'newlabel':LabelClass
   }
 
   tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
@@ -870,7 +877,7 @@ def main(_):
 
   processor = processors[task_name]()
 
-  label_list = processor.get_labels(D_alpha[L])
+  label_list = processor.get_labels(D_alpha)
 
   tokenizer = tokenization.FullTokenizer(
       vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
@@ -895,7 +902,7 @@ def main(_):
   num_train_steps = None
   num_warmup_steps = None
   if FLAGS.do_train:
-    train_examples = processor.get_train_examples(FLAGS.data_dir,idx_label=idx0+1)
+    train_examples = processor.get_train_examples(FLAGS.data_dir,idx_label=idx_label)
     num_train_steps = int(
         len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
     num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
