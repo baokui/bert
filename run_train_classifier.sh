@@ -95,7 +95,7 @@ nohup python -u run_classifier_multiClass1.py \
     --do_eval=False >> log/labelmodel-multiClass-train1.log 2>&1 &
 ###################################################################################
 ### 句库新标签
-export CUDA_VISIBLE_DEVICES=6
+export CUDA_VISIBLE_DEVICES=7
 BERT_BASE_DIR=/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12
 task_name=newlabel
 mkdir -p model/label/$task_name
