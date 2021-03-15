@@ -1036,12 +1036,13 @@ def main(_):
         num_written_lines += 1
     assert num_written_lines == num_actual_predict_examples
 class bert_cls:
-    #task_name = newlabel
+    #task_name = 'newlabel'
     #path_vocab = '/search/odin/guobk/data/labels/data_new/vocab.txt'
     #path_config = '/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json'
     #path_model = '/search/odin/guobk/data/labels/data_new/model/'
     #max_seq_length = 128
-    def __init__(self,task_name,path_vocab,path_config,path_model,max_seq_length=128):
+    #path_data = '/search/odin/guobk/data/labels/data_new/'
+    def __init__(self,task_name,path_data,path_vocab,path_config,path_model,max_seq_length=128):
         #os.environ['CUDA_VISIBLE_DEVICES'] = gpu
         L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
         L = task_name
@@ -1056,7 +1057,7 @@ class bert_cls:
             D_alpha = D_alpha[L]
             idx_label = idx0 + 1
         elif L == 'newlabel':
-            D_alpha = json.load(open(os.path.join(FLAGS.data_dir, 'D_label.json'), 'r'))
+            self.D_alpha = json.load(open(os.path.join(path_data, 'D_label.json'), 'r'))
             idx_label = 1
         tf.logging.set_verbosity(tf.logging.INFO)
         processors = {
@@ -1079,8 +1080,9 @@ class bert_cls:
         self.input_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_ids')
         self.input_mask = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_mask')
         self.segment_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='segment_ids')
-        self.labels = processor.get_labels(D_alpha)
-        self.num_labels = len(self.labels)
+        self.label_list = processor.get_labels(self.D_alpha)
+        self.labels = tf.placeholder(tf.int32, shape=[None, ], name="label_ids")
+        self.num_labels = len(self.label_list)
         is_training = False
         (loss, per_example_loss, logits, self.probabilities) = create_model(bert_config, is_training, self.input_ids, self.input_mask, self.segment_ids,
                  self.labels, self.num_labels, use_one_hot_embeddings=False)
@@ -1090,25 +1092,86 @@ class bert_cls:
         init_checkpoint = tf.train.latest_checkpoint(path_model)
         self.saver.restore(self.session, init_checkpoint)
     def predict(self,inputStr):
-        example = InputExample(guid='guid', text_a=inputStr, label=['0' for _ in range(len(self.Num_labels))])
-        feature = convert_single_example(10, example, self.labels, self.max_seq_length, self.tokenizer)
+        example = InputExample(guid='guid', text_a=inputStr, label='0')
+        feature = convert_single_example(10, example, self.label_list, self.max_seq_length, self.tokenizer)
         X_input_ids = feature.input_ids
         X_segment_ids = feature.segment_ids
         X_input_mask = feature.input_mask
         feed_dict = {self.input_ids: [X_input_ids], self.segment_ids: [X_segment_ids],
                      self.input_mask: [X_input_mask]}
-        P = self.session.run(self.ProbList, feed_dict=feed_dict)
-        P = [p[0] for p in P]
-        R = {}
-        for i in range(len(P)):
-            p = P[i]
-            idx = np.argmax(p)
-            label = self.D_map_inv[i][idx]
-            score = np.float(p[idx])
-            p = list(p)
-            result = {self.D_map_inv[i][j]: np.float(p[j]) for j in range(len(p))}
-            R[self.L0[i]] = [label,score,result]
-        return R,P
+        y = self.session.run(self.probabilities, feed_dict=feed_dict)[0]
+        p = np.argmax(y)
+        return p,y
+def test():
+    # tf.reset_default_graph()
+    # input_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_ids')
+    # input_mask = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_mask')
+    # segment_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='segment_ids')
+    # label_list = processor.get_labels(D_alpha)
+    # labels = tf.placeholder(tf.int32, shape=[None, ], name="label_ids")
+    # num_labels = len(label_list)
+    # is_training = False
+    # (loss, per_example_loss, logits, probabilities) = create_model(bert_config, is_training,input_ids,
+    #                                                                     input_mask, segment_ids,
+    #                                                                     labels, num_labels,
+    #                                                                     use_one_hot_embeddings=False)
+    # saver = tf.train.Saver(max_to_keep=None)
+    # session = tf.Session()
+    # session.run(tf.global_variables_initializer())
+    # init_checkpoint = tf.train.latest_checkpoint(path_model)
+    # saver.restore(session, init_checkpoint)
+    task_name = 'newlabel'
+    path_vocab = '/search/odin/guobk/data/labels/data_new/vocab.txt'
+    path_config = '/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json'
+    path_model = '/search/odin/guobk/data/labels/data_new/model/'
+    max_seq_length = 128
+    path_data = '/search/odin/guobk/data/labels/data_new/'
+    model = bert_cls(task_name,path_data,path_vocab,path_config,path_model,max_seq_length)
+    D_alpha = model.D_alpha
+    #json.load(open(os.path.join(path_data, 'D_label.json'), 'r'))
+    D_alpha_inv = {str(D_alpha[k]):k for k in D_alpha}
+    with open(os.path.join(path_data,'dev.txt'),'r') as f:
+        S = f.read().strip().split('\n')
+    S = [s.split('\t') for s in S]
+    R0 = []
+    for i in range(len(S)):
+        inputStr = S[i][0]
+        p,y = model.predict(inputStr)
+        R0.append([inputStr,S[i][1],str(p)])
+        if i%100==0:
+            print(i,len(S))
+            print('acc=%0.2f'%(len([r for r in R0 if r[1]==r[2]])/len(R0)))
+    X = []
+    for i in range(7):
+        X.append([r for r in R0 if r[1]==str(i)])
+    X1 = [['\t'.join([t[0],D_alpha_inv[t[1]],D_alpha_inv[t[2]]]) for t in x] for x in X]
+    for i in range(len(X1)):
+        with open(os.path.join(path_data,'result_dev_{}.txt'.format(D_alpha_inv[str(i)])),'w') as f:
+            f.write('\n'.join(X1[i]))
+    acc = []
+    pres = []
+    rec = []
+    D = {}
+    for i in range(7):
+        a = len([t for t in R0 if t[1]==str(i) and t[2]==str(i) or t[1]!=str(i) and t[2]!=str(i)])/len(R0)
+        p = len([t for t in R0 if t[1]==str(i) and t[2]==str(i)])/(0.00001+len([t for t in R0 if t[2]==str(i)]))
+        r = len([t for t in R0 if t[1]==str(i) and t[2]==str(i)])/(0.00001+len([t for t in R0 if t[1]==str(i)]))
+        D[D_alpha_inv[str(i)]] = {'acc':'%0.4f'%a,'pres':'%0.4f'%p,'rec':'%0.4f'%r}
+    with open(os.path.join(path_data,'result_dev.json'),'w') as f:
+        json.dump(D,f,ensure_ascii=False,indent=4)
+
+    with open(os.path.join(path_data,'test.txt'),'r') as f:
+        S = f.read().strip().split('\n')
+    R1 = []
+    for i in range(len(S)):
+        inputStr = S[i]
+        p,y = model.predict(inputStr)
+        R1.append([inputStr,str(p)])
+        if i%100==0:
+            print(i,len(S))
+    X1 = [r[0]+'\t'+D_alpha_inv[r[1]] for r in R1]
+    with open(os.path.join(path_data, 'result_test.txt'), 'w') as f:
+        f.write('\n'.join(X1))
 
 if __name__ == "__main__":
   flags.mark_flag_as_required("data_dir")
