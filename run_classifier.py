@@ -25,6 +25,8 @@ import modeling
 import optimization
 import tokenization
 import tensorflow as tf
+import json
+import numpy as np
 
 flags = tf.flags
 
@@ -1033,7 +1035,80 @@ def main(_):
         writer.write(output_line)
         num_written_lines += 1
     assert num_written_lines == num_actual_predict_examples
-
+class bert_cls:
+    #task_name = newlabel
+    #path_vocab = '/search/odin/guobk/data/labels/data_new/vocab.txt'
+    #path_config = '/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json'
+    #path_model = '/search/odin/guobk/data/labels/data_new/model/'
+    #max_seq_length = 128
+    def __init__(self,task_name,path_vocab,path_config,path_model,max_seq_length=128):
+        #os.environ['CUDA_VISIBLE_DEVICES'] = gpu
+        L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
+        L = task_name
+        if L in L0:
+            path_map = os.path.join(FLAGS.data_dir, 'map_index.json')
+            path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
+            D_map = json.load(open(path_map, 'r'))
+            D_alpha0 = json.load(open(path_alpha, 'r'))
+            D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
+            path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
+            idx0 = L0.index(L)
+            D_alpha = D_alpha[L]
+            idx_label = idx0 + 1
+        elif L == 'newlabel':
+            D_alpha = json.load(open(os.path.join(FLAGS.data_dir, 'D_label.json'), 'r'))
+            idx_label = 1
+        tf.logging.set_verbosity(tf.logging.INFO)
+        processors = {
+            "cola": ColaProcessor,
+            "mnli": MnliProcessor,
+            "mrpc": MrpcProcessor,
+            "xnli": XnliProcessor,
+            "使用场景p0": LabelClass,
+            "表达对象p0": LabelClass,
+            '表达者性别倾向p0': LabelClass,
+            '文字风格': LabelClass,
+            'newlabel': LabelClass
+        }
+        bert_config = modeling.BertConfig.from_json_file(path_config)
+        processor = processors[task_name.lower()]()
+        self.max_seq_length = max_seq_length
+        self.tokenizer = tokenization.FullTokenizer(
+            vocab_file=path_vocab, do_lower_case=True)
+        tf.reset_default_graph()
+        self.input_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_ids')
+        self.input_mask = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_mask')
+        self.segment_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='segment_ids')
+        self.labels = processor.get_labels(D_alpha)
+        self.num_labels = len(self.labels)
+        is_training = False
+        (loss, per_example_loss, logits, self.probabilities) = create_model(bert_config, is_training, self.input_ids, self.input_mask, self.segment_ids,
+                 self.labels, self.num_labels, use_one_hot_embeddings=False)
+        self.saver = tf.train.Saver(max_to_keep=None)
+        self.session = tf.Session()
+        self.session.run(tf.global_variables_initializer())
+        init_checkpoint = tf.train.latest_checkpoint(path_model)
+        self.saver.restore(self.session, init_checkpoint)
+    def predict(self,inputStr):
+        example = InputExample(guid='guid', text_a=inputStr, label=['0' for _ in range(len(self.Num_labels))])
+        feature = convert_single_example(10, example, self.labels, self.max_seq_length, self.tokenizer)
+        X_input_ids = feature.input_ids
+        X_segment_ids = feature.segment_ids
+        X_input_mask = feature.input_mask
+        feed_dict = {self.input_ids: [X_input_ids], self.segment_ids: [X_segment_ids],
+                     self.input_mask: [X_input_mask]}
+        P = self.session.run(self.ProbList, feed_dict=feed_dict)
+        P = [p[0] for p in P]
+        R = {}
+        for i in range(len(P)):
+            p = P[i]
+            idx = np.argmax(p)
+            label = self.D_map_inv[i][idx]
+            score = np.float(p[idx])
+            p = list(p)
+            result = {self.D_map_inv[i][j]: np.float(p[j]) for j in range(len(p))}
+            R[self.L0[i]] = [label,score,result]
+        return R,P
 
 if __name__ == "__main__":
   flags.mark_flag_as_required("data_dir")
