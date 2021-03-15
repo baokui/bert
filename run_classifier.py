@@ -417,7 +417,15 @@ class LabelClass(DataProcessor):
       examples.append(
           InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
     return examples
-
+def mytokenize(tokenizer,texts):
+    V = tokenizer.vocab.keys()
+    R = []
+    for t in texts:
+        if t not in V:
+            R.append('[UNK]')
+        else:
+            R.append(t)
+    return R
 def convert_single_example(ex_index, example, label_list, max_seq_length,
                            tokenizer):
   """Converts a single `InputExample` into a single `InputFeatures`."""
@@ -434,10 +442,12 @@ def convert_single_example(ex_index, example, label_list, max_seq_length,
   for (i, label) in enumerate(label_list):
     label_map[label] = i
 
-  tokens_a = tokenizer.tokenize(example.text_a)
+  #tokens_a = tokenizer.tokenize(example.text_a)
+  tokens_a = mytokenize(tokenizer,example.text_a)
   tokens_b = None
   if example.text_b:
-    tokens_b = tokenizer.tokenize(example.text_b)
+    #tokens_b = tokenizer.tokenize(example.text_b)
+    tokens_b = mytokenize(tokenizer, example.text_b)
 
   if tokens_b:
     # Modifies `tokens_a` and `tokens_b` in place so that the total
