@@ -134,3 +134,26 @@ nohup python -u run_classifier.py \
     --do_train=False \
     --num_train_epochs=10 \
     --do_eval=False >> log/labelmodel-predict-$task_name.log 2>&1 &
+
+#######################################################################
+### 句库新标签
+data=doubi
+export CUDA_VISIBLE_DEVICES=7
+BERT_BASE_DIR=/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12
+task_name=newlabel
+output_dir=/search/odin/guobk/data/labels/data_new/bimodel/model_$data/
+mkdir -p $output_dir
+mkdir log
+nohup python -u run_bi_classifier.py \
+    --data_dir=/search/odin/guobk/data/labels/data_new/subdata/data_$data \
+    --bert_config_file=$BERT_BASE_DIR/bert_config.json \
+    --task_name=$task_name \
+    --vocab_file=/search/odin/guobk/data/labels/data_new/vocab.txt \
+    --output_dir=$output_dir \
+    --train_batch_size=8 \
+    --init_checkpoint=$BERT_BASE_DIR/bert_model.ckpt \
+    --max_seq_length=128 \
+    --do_predict=False \
+    --do_train=True \
+    --num_train_epochs=10 \
+    --do_eval=False >> log/labelmodel-train-$task_name-$data.log 2>&1 &

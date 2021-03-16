@@ -1052,7 +1052,7 @@ class bert_cls:
     #path_model = '/search/odin/guobk/data/labels/data_new/model/'
     #max_seq_length = 128
     #path_data = '/search/odin/guobk/data/labels/data_new/'
-    def __init__(self,task_name,path_data,path_vocab,path_config,path_model,max_seq_length=128):
+    def __init__(self,task_name,path_data,path_vocab,path_config,path_model,init_checkpoint=None,max_seq_length=128):
         #os.environ['CUDA_VISIBLE_DEVICES'] = gpu
         L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
         L = task_name
@@ -1099,7 +1099,8 @@ class bert_cls:
         self.saver = tf.train.Saver(max_to_keep=None)
         self.session = tf.Session()
         self.session.run(tf.global_variables_initializer())
-        init_checkpoint = tf.train.latest_checkpoint(path_model)
+        if not init_checkpoint:
+            init_checkpoint = tf.train.latest_checkpoint(path_model)
         self.saver.restore(self.session, init_checkpoint)
     def predict(self,inputStr):
         example = InputExample(guid='guid', text_a=inputStr, label='0')
@@ -1136,7 +1137,8 @@ def test():
     path_model = '/search/odin/guobk/data/labels/data_new/model/'
     max_seq_length = 128
     path_data = '/search/odin/guobk/data/labels/data_new/'
-    model = bert_cls(task_name,path_data,path_vocab,path_config,path_model,max_seq_length)
+    init_checkpoint = '/search/odin/guobk/data/labels/data_new/model/model.ckpt-2000'
+    model = bert_cls(task_name,path_data,path_vocab,path_config,path_model,init_checkpoint,max_seq_length)
     D_alpha = model.D_alpha
     #json.load(open(os.path.join(path_data, 'D_label.json'), 'r'))
     D_alpha_inv = {str(D_alpha[k]):k for k in D_alpha}
