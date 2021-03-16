@@ -648,7 +648,7 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 
 def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
-                 labels, num_labels, use_one_hot_embeddings):
+                 labels, num_labels,input_mask_diag, use_one_hot_embeddings):
     """Creates a classification model."""
     model = modeling.BertModel(
         config=bert_config,
@@ -667,10 +667,11 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
     mask = tf.cast(input_mask, tf.float32)
     output_layer0 = model.get_all_encoder_layers()
     layer3 = output_layer0[2]
-    layer3_1 = tf.transpose(layer3, perm=[0, 2, 1])
+    #layer3_1 = tf.transpose(layer3, perm=[0, 2, 1])
     #input_tensor = gather_indexes(layer3, input_mask)
-    print('TEST',layer3_1,mask)
-    output_layer1 = layer3_1*mask
+    # print('TEST',layer3_1,mask)
+    # output_layer1 = layer3_1*mask
+    output_layer1 = tf.matmul(input_mask_diag,layer3)
     output_layer2 = tf.transpose(output_layer1,perm=[0,2,1])
     output_layer = tf.reduce_mean(output_layer2,axis=1)
 
@@ -875,7 +876,7 @@ def iterData(tokenizer,label_list):
     inputMsk = []
     inputSeg = []
     labels = []
-    for epoch in range(FLAGS.num_train_epochs):
+    for epoch in range(int(FLAGS.num_train_epochs)):
         random.shuffle(S)
         for j in range(len(S)):
             s = S[j].split('\t')
@@ -942,13 +943,14 @@ def train():
         vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
     input_ids = tf.placeholder(tf.int32, shape=[None, FLAGS.max_seq_length], name='input_ids')
     input_mask = tf.placeholder(tf.int32, shape=[None, FLAGS.max_seq_length], name='input_mask')
+    input_mask_diag = tf.placeholder(tf.int32, shape=[None, FLAGS.max_seq_length, FLAGS.max_seq_length], name='input_mask_diag')
     segment_ids = tf.placeholder(tf.int32, shape=[None, FLAGS.max_seq_length], name='segment_ids')
     Labels = tf.placeholder(tf.int32, shape=[None, ], name="label_ids")
     num_labels = len(label_list)
     is_training = True
     (loss, per_example_loss, logits, probabilities) = create_model(bert_config, is_training, input_ids,
                                                                         input_mask, segment_ids,
-                                                                        Labels, num_labels,
+                                                                        Labels, num_labels,input_mask_diag,
                                                                         use_one_hot_embeddings=False)
     global_step = tf.train.get_or_create_global_step()
     optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
@@ -971,7 +973,10 @@ def train():
     step = 0
     while data!='__STOP__':
         epoch, inputIds, inputMsk, inputSeg, labels = data
-        feed_dict = {input_ids:inputIds,input_mask:inputMsk,segment_ids:inputSeg,Labels:labels}
+        inputMskDiag = []
+        for i in range(len(inputMsk)):
+            inputMskDiag.append(np.diag(inputMsk[i]))
+        feed_dict = {input_ids:inputIds,input_mask:inputMsk,segment_ids:inputSeg,Labels:labels,input_mask_diag:inputMskDiag}
         _,loss_ = sess.run([train_op,loss],feed_dict=feed_dict)
         if step%10==0:
             print('epoch:{},step:{},loss:{}'.format(epoch,step,loss_))
