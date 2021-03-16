@@ -27,6 +27,7 @@ import tokenization
 import tensorflow as tf
 import json
 import numpy as np
+# from run_pretraining import gather_indexes
 
 flags = tf.flags
 
@@ -125,6 +126,19 @@ flags.DEFINE_integer(
     "num_tpu_cores", 8,
     "Only used if `use_tpu` is True. Total number of TPU cores to use.")
 
+def gather_indexes(sequence_tensor, positions):
+  """Gathers the vectors at the specific positions over a minibatch."""
+  sequence_shape = modeling.get_shape_list(sequence_tensor, expected_rank=3)
+  batch_size = sequence_shape[0]
+  seq_length = sequence_shape[1]
+  width = sequence_shape[2]
+  flat_offsets = tf.reshape(
+      tf.range(0, batch_size, dtype=tf.int32) * seq_length, [-1, 1])
+  flat_positions = tf.reshape(positions + flat_offsets, [-1])
+  flat_sequence_tensor = tf.reshape(sequence_tensor,
+                                    [batch_size * seq_length, width])
+  output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
+  return output_tensor
 
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
@@ -653,6 +667,8 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
     output_layer0 = model.get_all_encoder_layers()
     layer3 = output_layer0[2]
     layer3_1 = tf.transpose(layer3, perm=[0, 2, 1])
+    input_tensor = gather_indexes(layer3, input_mask)
+    print('TEST',layer3_1,mask)
     output_layer1 = layer3_1*mask
     output_layer2 = tf.transpose(output_layer1,perm=[0,2,1])
     output_layer = tf.reduce_mean(output_layer2,axis=1)
@@ -949,11 +965,18 @@ def main(_):
 
     # If TPU is not available, this will fall back to normal Estimator on CPU
     # or GPU.
+    # estimator = tf.contrib.tpu.TPUEstimator(
+    #     use_tpu=FLAGS.use_tpu,
+    #     model_fn=model_fn,
+    #     config=run_config,
+    #     train_batch_size=FLAGS.train_batch_size,
+    #     eval_batch_size=FLAGS.eval_batch_size,
+    #     predict_batch_size=FLAGS.predict_batch_size)
     estimator = tf.contrib.tpu.TPUEstimator(
         use_tpu=FLAGS.use_tpu,
         model_fn=model_fn,
         config=run_config,
-        train_batch_size=FLAGS.train_batch_size,
+        train_batch_size=None,
         eval_batch_size=FLAGS.eval_batch_size,
         predict_batch_size=FLAGS.predict_batch_size)
 
