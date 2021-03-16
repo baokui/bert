@@ -657,7 +657,6 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
         input_mask=input_mask,
         token_type_ids=segment_ids,
         use_one_hot_embeddings=use_one_hot_embeddings)
-
     # In the demo, we are doing a simple classification task on the entire
     # segment.
     #
@@ -666,40 +665,31 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
     #output_layer = model.get_pooled_output()
     mask = tf.cast(input_mask, tf.float32)
     output_layer0 = model.get_all_encoder_layers()
-    layer3 = output_layer0[2]
+    layer3 = output_layer0[-1]
     #layer3_1 = tf.transpose(layer3, perm=[0, 2, 1])
     #input_tensor = gather_indexes(layer3, input_mask)
     # print('TEST',layer3_1,mask)
     # output_layer1 = layer3_1*mask
-    output_layer1 = tf.matmul(input_mask_diag,layer3)
-    output_layer2 = tf.transpose(output_layer1,perm=[0,2,1])
-    output_layer = tf.reduce_mean(output_layer2,axis=1)
-
-
+    #output_layer1 = tf.matmul(input_mask_diag,layer3)
+    #output_layer2 = tf.transpose(output_layer1,perm=[0,2,1])
+    output_layer = tf.reduce_mean(layer3,axis=1)
     hidden_size = output_layer.shape[-1].value
-
     output_weights = tf.get_variable(
         "output_weights", [num_labels, hidden_size],
         initializer=tf.truncated_normal_initializer(stddev=0.02))
-
     output_bias = tf.get_variable(
         "output_bias", [num_labels], initializer=tf.zeros_initializer())
-
     with tf.variable_scope("loss"):
         if is_training:
             # I.e., 0.1 dropout
             output_layer = tf.nn.dropout(output_layer, keep_prob=0.9)
-
         logits = tf.matmul(output_layer, output_weights, transpose_b=True)
         logits = tf.nn.bias_add(logits, output_bias)
         probabilities = tf.nn.softmax(logits, axis=-1)
         log_probs = tf.nn.log_softmax(logits, axis=-1)
-
         one_hot_labels = tf.one_hot(labels, depth=num_labels, dtype=tf.float32)
-
         per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
         loss = tf.reduce_mean(per_example_loss)
-
         return (loss, per_example_loss, logits, probabilities)
 
 
@@ -886,7 +876,7 @@ def iterData(tokenizer,label_list):
             inputIds.append(feature.input_ids)
             inputSeg.append(feature.segment_ids)
             inputMsk.append(feature.input_mask)
-            labels.append([int(s[1])])
+            labels.append(int(s[1]))
             if len(inputIds)>=FLAGS.train_batch_size:
                 yield epoch,inputIds,inputMsk,inputSeg,labels
                 inputIds = []
@@ -894,6 +884,23 @@ def iterData(tokenizer,label_list):
                 inputSeg = []
                 labels = []
     yield '__STOP__'
+def devData(tokenizer,label_list):
+    with open(os.path.join(FLAGS.data_dir,'dev.txt'),'r') as f:
+        S = f.read().strip().split('\n')
+    inputIds = []
+    inputMsk = []
+    inputSeg = []
+    labels = []
+    for j in range(len(S)):
+        s = S[j].split('\t')
+        inputStr = s[0]
+        example = InputExample(guid='guid', text_a=inputStr, label='0')
+        feature = convert_single_example(10, example, label_list, FLAGS.max_seq_length, tokenizer)
+        inputIds.append(feature.input_ids)
+        inputSeg.append(feature.segment_ids)
+        inputMsk.append(feature.input_mask)
+        labels.append(int(s[1]))
+    return inputIds,inputMsk,inputSeg,labels
 def train():
     import json
     L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
@@ -937,13 +944,14 @@ def train():
     task_name = FLAGS.task_name.lower()
     if task_name not in processors:
         raise ValueError("Task not found: %s" % (task_name))
+    tf.reset_default_graph()
     processor = processors[task_name]()
     label_list = processor.get_labels(D_alpha)
     tokenizer = tokenization.FullTokenizer(
         vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
     input_ids = tf.placeholder(tf.int32, shape=[None, FLAGS.max_seq_length], name='input_ids')
     input_mask = tf.placeholder(tf.int32, shape=[None, FLAGS.max_seq_length], name='input_mask')
-    input_mask_diag = tf.placeholder(tf.int32, shape=[None, FLAGS.max_seq_length, FLAGS.max_seq_length], name='input_mask_diag')
+    input_mask_diag = tf.placeholder(tf.float32, shape=[None, FLAGS.max_seq_length, FLAGS.max_seq_length], name='input_mask_diag')
     segment_ids = tf.placeholder(tf.int32, shape=[None, FLAGS.max_seq_length], name='segment_ids')
     Labels = tf.placeholder(tf.int32, shape=[None, ], name="label_ids")
     num_labels = len(label_list)
@@ -970,6 +978,15 @@ def train():
     sess.run(tf.global_variables_initializer())
     iter = iterData(tokenizer,label_list)
     data = next(iter)
+    FLAGS.eval_batch_size = 1000
+    inputIds1, inputMsk1, inputSeg1, labels1 = devData(tokenizer, label_list)
+    inputMskDiag1 = []
+    for i in range(len(inputMsk1)):
+        inputMskDiag1.append(np.diag(inputMsk1[i]))
+    inputIds1 = inputIds1[:FLAGS.eval_batch_size]
+    inputMsk1 = inputMsk1[:FLAGS.eval_batch_size]
+    inputSeg1 = inputSeg1[:FLAGS.eval_batch_size]
+    inputMskDiag1 = inputMskDiag1[:FLAGS.eval_batch_size]
     step = 0
     while data!='__STOP__':
         epoch, inputIds, inputMsk, inputSeg, labels = data
@@ -979,10 +996,20 @@ def train():
         feed_dict = {input_ids:inputIds,input_mask:inputMsk,segment_ids:inputSeg,Labels:labels,input_mask_diag:inputMskDiag}
         _,loss_ = sess.run([train_op,loss],feed_dict=feed_dict)
         if step%10==0:
-            print('epoch:{},step:{},loss:{}'.format(epoch,step,loss_))
+            p = sess.run(probabilities, feed_dict=feed_dict)
+            p = [np.argmax(t) for t in p]
+            acc = sum([p[i] == labels[i] for i in range(len(p))]) / len(p)
+            print('epoch:{},step:{},loss:{},acc:{}'.format(epoch,step,loss_,acc))
         if step%100==0:
             checkpoint_path = os.path.join(FLAGS.output_dir, 'model.ckpt')
             saver.save(sess, checkpoint_path, global_step=global_step)
+            feed_dict = {input_ids: inputIds1, input_mask: inputMsk1, segment_ids: inputSeg1, Labels: labels1,
+                         input_mask_diag: inputMskDiag1}
+            p = sess.run(probabilities, feed_dict=feed_dict)
+            p = [np.argmax(t) for t in p]
+            acc = sum([p[i]==labels1[i] for i in range(len(p))])/len(p)
+            print('dev acc:{}'.format(acc))
+        step += 1
         data = next(iter)
 
 

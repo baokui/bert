@@ -197,4 +197,5 @@ nohup python -u run_classifier1.py \
     --do_predict=False \
     --do_train=True \
     --num_train_epochs=10 \
+    --learning_rate=0.1 \
     --do_eval=False >> log/labelmodel-train-$task_name-layer2.log 2>&1 &
