@@ -4,7 +4,7 @@ nohup python -u bertSentvec.py >> log/bertSentvec.log 2>&1 &
 output_dir=/search/odin/guobk/data/bert_semantic/model/
 mkdir $output_dir
 data_dir=/search/odin/guobk/data/bert_semantic/data/
-export CUDA_VISIBLE_DEVICES=4
+export CUDA_VISIBLE_DEVICES=0
 nohup python -u bertSentvec.py \
     --output_dir=$output_dir \
     --data_dir=$data_dir \
