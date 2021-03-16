@@ -27,6 +27,7 @@ import tokenization
 import tensorflow as tf
 import json
 import numpy as np
+import random
 # from run_pretraining import gather_indexes
 
 flags = tf.flags
@@ -667,7 +668,7 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
     output_layer0 = model.get_all_encoder_layers()
     layer3 = output_layer0[2]
     layer3_1 = tf.transpose(layer3, perm=[0, 2, 1])
-    input_tensor = gather_indexes(layer3, input_mask)
+    #input_tensor = gather_indexes(layer3, input_mask)
     print('TEST',layer3_1,mask)
     output_layer1 = layer3_1*mask
     output_layer2 = tf.transpose(output_layer1,perm=[0,2,1])
@@ -867,6 +868,118 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
         features.append(feature)
     return features
 
+def iterData(tokenizer,label_list):
+    with open(os.path.join(FLAGS.data_dir,'train.txt'),'r') as f:
+        S = f.read().strip().split('\n')
+    inputIds = []
+    inputMsk = []
+    inputSeg = []
+    labels = []
+    for epoch in range(FLAGS.num_train_epochs):
+        random.shuffle(S)
+        for j in range(len(S)):
+            s = S[j].split('\t')
+            inputStr = s[0]
+            example = InputExample(guid='guid', text_a=inputStr, label='0')
+            feature = convert_single_example(10, example, label_list, FLAGS.max_seq_length, tokenizer)
+            inputIds.append(feature.input_ids)
+            inputSeg.append(feature.segment_ids)
+            inputMsk.append(feature.input_mask)
+            labels.append([int(s[1])])
+            if len(inputIds)>=FLAGS.train_batch_size:
+                yield epoch,inputIds,inputMsk,inputSeg,labels
+                inputIds = []
+                inputMsk = []
+                inputSeg = []
+                labels = []
+    yield '__STOP__'
+def train():
+    import json
+    L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
+    L = FLAGS.task_name
+    if L in L0:
+        path_map = os.path.join(FLAGS.data_dir, 'map_index.json')
+        path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
+        D_map = json.load(open(path_map, 'r'))
+        D_alpha0 = json.load(open(path_alpha, 'r'))
+        D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
+        path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
+        idx0 = L0.index(L)
+        D_alpha = D_alpha[L]
+        idx_label = idx0 + 1
+    elif L == 'newlabel':
+        D_alpha = json.load(open(os.path.join(FLAGS.data_dir, 'D_label.json'), 'r'))
+        idx_label = 1
+    tf.logging.set_verbosity(tf.logging.INFO)
+
+    processors = {
+        "cola": ColaProcessor,
+        "mnli": MnliProcessor,
+        "mrpc": MrpcProcessor,
+        "xnli": XnliProcessor,
+        "使用场景p0": LabelClass,
+        "表达对象p0": LabelClass,
+        '表达者性别倾向p0': LabelClass,
+        '文字风格': LabelClass,
+        'newlabel': LabelClass
+    }
+
+    tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
+                                                  FLAGS.init_checkpoint)
+    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
+    if FLAGS.max_seq_length > bert_config.max_position_embeddings:
+        raise ValueError(
+            "Cannot use sequence length %d because the BERT model "
+            "was only trained up to sequence length %d" %
+            (FLAGS.max_seq_length, bert_config.max_position_embeddings))
+    tf.gfile.MakeDirs(FLAGS.output_dir)
+    task_name = FLAGS.task_name.lower()
+    if task_name not in processors:
+        raise ValueError("Task not found: %s" % (task_name))
+    processor = processors[task_name]()
+    label_list = processor.get_labels(D_alpha)
+    tokenizer = tokenization.FullTokenizer(
+        vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
+    input_ids = tf.placeholder(tf.int32, shape=[None, FLAGS.max_seq_length], name='input_ids')
+    input_mask = tf.placeholder(tf.int32, shape=[None, FLAGS.max_seq_length], name='input_mask')
+    segment_ids = tf.placeholder(tf.int32, shape=[None, FLAGS.max_seq_length], name='segment_ids')
+    Labels = tf.placeholder(tf.int32, shape=[None, ], name="label_ids")
+    num_labels = len(label_list)
+    is_training = True
+    (loss, per_example_loss, logits, probabilities) = create_model(bert_config, is_training, input_ids,
+                                                                        input_mask, segment_ids,
+                                                                        Labels, num_labels,
+                                                                        use_one_hot_embeddings=False)
+    global_step = tf.train.get_or_create_global_step()
+    optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
+    train_op = optimizer.minimize(loss)
+    new_global_step = global_step + 1
+    train_op = tf.group(train_op, [global_step.assign(new_global_step)])
+    init = tf.global_variables_initializer()
+    saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
+    sess = tf.Session()
+    # 调用init_from_checkpoint方法
+    tvars = tf.trainable_variables()
+    (assignment_map,
+     initialized_variable_names) = modeling.get_assignment_map_from_checkpoint(
+        tvars, FLAGS.init_checkpoint)
+    tf.train.init_from_checkpoint(FLAGS.init_checkpoint, assignment_map)
+    # 最后初始化变量
+    sess.run(tf.global_variables_initializer())
+    iter = iterData(tokenizer,label_list)
+    data = next(iter)
+    step = 0
+    while data!='__STOP__':
+        epoch, inputIds, inputMsk, inputSeg, labels = data
+        feed_dict = {input_ids:inputIds,input_mask:inputMsk,segment_ids:inputSeg,Labels:labels}
+        _,loss_ = sess.run([train_op,loss],feed_dict=feed_dict)
+        if step%10==0:
+            print('epoch:{},step:{},loss:{}'.format(epoch,step,loss_))
+        if step%100==0:
+            checkpoint_path = os.path.join(FLAGS.output_dir, 'model.ckpt')
+            saver.save(sess, checkpoint_path, global_step=global_step)
+        data = next(iter)
+
 
 def main(_):
     import json
@@ -965,20 +1078,20 @@ def main(_):
 
     # If TPU is not available, this will fall back to normal Estimator on CPU
     # or GPU.
-    # estimator = tf.contrib.tpu.TPUEstimator(
-    #     use_tpu=FLAGS.use_tpu,
-    #     model_fn=model_fn,
-    #     config=run_config,
-    #     train_batch_size=FLAGS.train_batch_size,
-    #     eval_batch_size=FLAGS.eval_batch_size,
-    #     predict_batch_size=FLAGS.predict_batch_size)
     estimator = tf.contrib.tpu.TPUEstimator(
         use_tpu=FLAGS.use_tpu,
         model_fn=model_fn,
         config=run_config,
-        train_batch_size=None,
+        train_batch_size=FLAGS.train_batch_size,
         eval_batch_size=FLAGS.eval_batch_size,
         predict_batch_size=FLAGS.predict_batch_size)
+    # estimator = tf.contrib.tpu.TPUEstimator(
+    #     use_tpu=FLAGS.use_tpu,
+    #     model_fn=model_fn,
+    #     config=run_config,
+    #     train_batch_size=None,
+    #     eval_batch_size=FLAGS.eval_batch_size,
+    #     predict_batch_size=FLAGS.predict_batch_size)
 
     if FLAGS.do_train:
         train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
