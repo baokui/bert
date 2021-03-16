@@ -157,7 +157,7 @@ nohup python -u run_bi_classifier.py \
     --do_train=True \
     --num_train_epochs=10 \
     --do_eval=False >> log/labelmodel-train-$task_name-$data.log 2>&1 &
-data=keai
+data=gufeng
 export CUDA_VISIBLE_DEVICES=4
 BERT_BASE_DIR=/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12
 task_name=newlabel

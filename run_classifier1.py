@@ -648,7 +648,15 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
     #
     # If you want to use the token-level output, use model.get_sequence_output()
     # instead.
-    output_layer = model.get_pooled_output()
+    #output_layer = model.get_pooled_output()
+    mask = tf.cast(input_mask, tf.float32)
+    output_layer0 = model.get_all_encoder_layers()
+    layer3 = output_layer0[2]
+    layer3_1 = tf.transpose(layer3, perm=[0, 2, 1])
+    output_layer1 = layer3_1*mask
+    output_layer2 = tf.transpose(output_layer1,perm=[0,2,1])
+    output_layer = tf.reduce_mean(output_layer2,axis=1)
+
 
     hidden_size = output_layer.shape[-1].value
 
@@ -735,13 +743,10 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
             train_op = optimization.create_optimizer(
                 total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
 
-            logging_hook = tf.train.LoggingTensorHook({"loss": total_loss}, every_n_iter=10)
-
             output_spec = tf.contrib.tpu.TPUEstimatorSpec(
                 mode=mode,
                 loss=total_loss,
                 train_op=train_op,
-                training_hooks=[logging_hook],
                 scaffold_fn=scaffold_fn)
         elif mode == tf.estimator.ModeKeys.EVAL:
 
@@ -846,21 +851,21 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
 
 def main(_):
     import json
-    # L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
-    # L = FLAGS.task_name
-    # if L in L0:
-    #     path_map = os.path.join(FLAGS.data_dir, 'map_index.json')
-    #     path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
-    #     D_map = json.load(open(path_map, 'r'))
-    #     D_alpha0 = json.load(open(path_alpha, 'r'))
-    #     D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
-    #     path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
-    #     idx0 = L0.index(L)
-    #     D_alpha = D_alpha[L]
-    #     idx_label = idx0 + 1
-    # elif L == 'newlabel':
-    #     D_alpha = json.load(open(os.path.join(FLAGS.data_dir, 'D_label.json'), 'r'))
-    idx_label = 1
+    L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
+    L = FLAGS.task_name
+    if L in L0:
+        path_map = os.path.join(FLAGS.data_dir, 'map_index.json')
+        path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
+        D_map = json.load(open(path_map, 'r'))
+        D_alpha0 = json.load(open(path_alpha, 'r'))
+        D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
+        path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
+        idx0 = L0.index(L)
+        D_alpha = D_alpha[L]
+        idx_label = idx0 + 1
+    elif L == 'newlabel':
+        D_alpha = json.load(open(os.path.join(FLAGS.data_dir, 'D_label.json'), 'r'))
+        idx_label = 1
     tf.logging.set_verbosity(tf.logging.INFO)
 
     processors = {
@@ -899,8 +904,7 @@ def main(_):
 
     processor = processors[task_name]()
 
-    #label_list = processor.get_labels(D_alpha)
-    label_list = ['0','1']
+    label_list = processor.get_labels(D_alpha)
 
     tokenizer = tokenization.FullTokenizer(
         vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
@@ -1065,10 +1069,38 @@ class bert_cls:
     # path_model = '/search/odin/guobk/data/labels/data_new/model/'
     # max_seq_length = 128
     # path_data = '/search/odin/guobk/data/labels/data_new/'
-    def __init__(self, path_vocab, path_config, path_model, init_checkpoint=None,
+    def __init__(self, task_name, path_data, path_vocab, path_config, path_model, init_checkpoint=None,
                  max_seq_length=128):
+        # os.environ['CUDA_VISIBLE_DEVICES'] = gpu
+        L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
+        L = task_name
+        if L in L0:
+            path_map = os.path.join(FLAGS.data_dir, 'map_index.json')
+            path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
+            D_map = json.load(open(path_map, 'r'))
+            D_alpha0 = json.load(open(path_alpha, 'r'))
+            D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
+            path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
+            idx0 = L0.index(L)
+            D_alpha = D_alpha[L]
+            idx_label = idx0 + 1
+        elif L == 'newlabel':
+            self.D_alpha = json.load(open(os.path.join(path_data, 'D_label.json'), 'r'))
+            idx_label = 1
+        tf.logging.set_verbosity(tf.logging.INFO)
+        processors = {
+            "cola": ColaProcessor,
+            "mnli": MnliProcessor,
+            "mrpc": MrpcProcessor,
+            "xnli": XnliProcessor,
+            "使用场景p0": LabelClass,
+            "表达对象p0": LabelClass,
+            '表达者性别倾向p0': LabelClass,
+            '文字风格': LabelClass,
+            'newlabel': LabelClass
+        }
         bert_config = modeling.BertConfig.from_json_file(path_config)
-        #processor = LabelClass()
+        processor = processors[task_name.lower()]()
         self.max_seq_length = max_seq_length
         self.tokenizer = tokenization.FullTokenizer(
             vocab_file=path_vocab, do_lower_case=True)
@@ -1076,7 +1108,7 @@ class bert_cls:
         self.input_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_ids')
         self.input_mask = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_mask')
         self.segment_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='segment_ids')
-        self.label_list = ['0','1']
+        self.label_list = processor.get_labels(self.D_alpha)
         self.labels = tf.placeholder(tf.int32, shape=[None, ], name="label_ids")
         self.num_labels = len(self.label_list)
         is_training = False
@@ -1090,6 +1122,7 @@ class bert_cls:
         if not init_checkpoint:
             init_checkpoint = tf.train.latest_checkpoint(path_model)
         self.saver.restore(self.session, init_checkpoint)
+
     def predict(self, inputStr):
         example = InputExample(guid='guid', text_a=inputStr, label='0')
         feature = convert_single_example(10, example, self.label_list, self.max_seq_length, self.tokenizer)
@@ -1102,31 +1135,7 @@ class bert_cls:
         p = np.argmax(y)
         return p, y
 
-import numpy as np
-from sklearn.preprocessing import label_binarize
-from sklearn import metrics
-import json
-import os
-def PRcompute(Label, Predict, thr0, minPre=0.8):
-    R = ['\t'.join(['thr', 'precision', 'recall'])]
-    minRecall = 0
-    minPrecision = 0
-    for i in range(len(thr0)):
-        t = thr0[i]
-        TP = len([j for j in range(len(Label)) if Label[j] == 1 and Predict[j] >= t])
-        FP = len([j for j in range(len(Label)) if Label[j] == 0 and Predict[j] >= t])
-        TN = len([j for j in range(len(Label)) if Label[j] == 0 and Predict[j] < t])
-        FN = len([j for j in range(len(Label)) if Label[j] == 1 and Predict[j] < t])
-        p = TP / (TP + FP + 0.001)
-        r = TP / (TP + FN + 0.001)
-        if p > minPre and minRecall == 0:
-            minRecall = r
-            minPrecision = p
-        R.append('\t'.join(['%0.2f' % t, '%0.2f' % p, '%0.2f' % r]))
-    if minRecall == 0:
-        minRecall = r
-        minPrecision = p
-    return R, minPrecision, minRecall
+
 def test():
     # tf.reset_default_graph()
     # input_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_ids')
@@ -1145,14 +1154,17 @@ def test():
     # session.run(tf.global_variables_initializer())
     # init_checkpoint = tf.train.latest_checkpoint(path_model)
     # saver.restore(session, init_checkpoint)
+    task_name = 'newlabel'
     path_vocab = '/search/odin/guobk/data/labels/data_new/vocab.txt'
     path_config = '/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json'
-    path_model = '/search/odin/guobk/data/labels/data_new/bimodel/model_doubi/'
+    path_model = '/search/odin/guobk/data/labels/data_new/model/'
     max_seq_length = 128
-    path_data = '/search/odin/guobk/data/labels/data_new/subdata/data_doubi'
-    init_checkpoint = '/search/odin/guobk/data/labels/data_new/bimodel/model_doubi/model.ckpt-2000'
-    init_checkpoint = None
-    model = bert_cls(path_vocab, path_config, path_model, init_checkpoint, max_seq_length)
+    path_data = '/search/odin/guobk/data/labels/data_new/'
+    init_checkpoint = '/search/odin/guobk/data/labels/data_new/model/model.ckpt-2000'
+    model = bert_cls(task_name, path_data, path_vocab, path_config, path_model, init_checkpoint, max_seq_length)
+    D_alpha = model.D_alpha
+    # json.load(open(os.path.join(path_data, 'D_label.json'), 'r'))
+    D_alpha_inv = {str(D_alpha[k]): k for k in D_alpha}
     with open(os.path.join(path_data, 'dev.txt'), 'r') as f:
         S = f.read().strip().split('\n')
     S = [s.split('\t') for s in S]
@@ -1160,16 +1172,43 @@ def test():
     for i in range(len(S)):
         inputStr = S[i][0]
         p, y = model.predict(inputStr)
-        R0.append([inputStr, S[i][1], str(p),y[1]])
+        R0.append([inputStr, S[i][1], str(p)])
         if i % 100 == 0:
             print(i, len(S))
             print('acc=%0.2f' % (len([r for r in R0 if r[1] == r[2]]) / len(R0)))
-    thr0 = [i*0.001 for i in range(100)]
-    label0 = [int(t[1]) for t in R0]
-    predict0 = [t[3] for t in R0]
-    pr, minPrecision, minRecall = PRcompute(label0, predict0, thr0)
+    X = []
+    for i in range(7):
+        X.append([r for r in R0 if r[1] == str(i)])
+    X1 = [['\t'.join([t[0], D_alpha_inv[t[1]], D_alpha_inv[t[2]]]) for t in x] for x in X]
+    for i in range(len(X1)):
+        with open(os.path.join(path_data, 'result_dev_{}.txt'.format(D_alpha_inv[str(i)])), 'w') as f:
+            f.write('\n'.join(X1[i]))
+    acc = []
+    pres = []
+    rec = []
+    D = {}
+    for i in range(7):
+        a = len([t for t in R0 if t[1] == str(i) and t[2] == str(i) or t[1] != str(i) and t[2] != str(i)]) / len(R0)
+        p = len([t for t in R0 if t[1] == str(i) and t[2] == str(i)]) / (
+                    0.00001 + len([t for t in R0 if t[2] == str(i)]))
+        r = len([t for t in R0 if t[1] == str(i) and t[2] == str(i)]) / (
+                    0.00001 + len([t for t in R0 if t[1] == str(i)]))
+        D[D_alpha_inv[str(i)]] = {'acc': '%0.4f' % a, 'pres': '%0.4f' % p, 'rec': '%0.4f' % r}
+    with open(os.path.join(path_data, 'result_dev.json'), 'w') as f:
+        json.dump(D, f, ensure_ascii=False, indent=4)
 
-
+    with open(os.path.join(path_data, 'test.txt'), 'r') as f:
+        S = f.read().strip().split('\n')
+    R1 = []
+    for i in range(len(S)):
+        inputStr = S[i]
+        p, y = model.predict(inputStr)
+        R1.append([inputStr, str(p)])
+        if i % 100 == 0:
+            print(i, len(S))
+    X1 = [r[0] + '\t' + D_alpha_inv[r[1]] for r in R1]
+    with open(os.path.join(path_data, 'result_test.txt'), 'w') as f:
+        f.write('\n'.join(X1))
 
 
 if __name__ == "__main__":
