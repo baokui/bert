@@ -811,14 +811,6 @@ def train(_):
     # FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
     # FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
     # FLAGS.init_checkpoint = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_model.ckpt"
-    FLAGS.output_dir = "model/" + FLAGS.task_name
-    processors = {
-        "cola": ColaProcessor,
-        "mnli": MnliProcessor,
-        "mrpc": MrpcProcessor,
-        "xnli": XnliProcessor,
-        "sort": sortProcessor,
-    }
     label_lists = ['0','1']
     tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
                                                   FLAGS.init_checkpoint)
@@ -837,7 +829,6 @@ def train(_):
 
     tf.gfile.MakeDirs(FLAGS.output_dir)
 
-    task_name = FLAGS.task_name.lower()
 
     #processor = processors[task_name]()
     processor = sortProcessor()
