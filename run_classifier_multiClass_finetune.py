@@ -607,7 +607,7 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 
 def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
-                 Labels, Num_labels, use_one_hot_embeddings):
+                 Labels, Num_labels, use_one_hot_embeddings,is_finetune=False):
     """Creates a classification model."""
     model = modeling.BertModel(
         config=bert_config,
@@ -615,7 +615,8 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
         input_ids=input_ids,
         input_mask=input_mask,
         token_type_ids=segment_ids,
-        use_one_hot_embeddings=use_one_hot_embeddings)
+        use_one_hot_embeddings=use_one_hot_embeddings
+        )
 
     # In the demo, we are doing a simple classification task on the entire
     # segment.
@@ -641,7 +642,7 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
             "output_bias_" + str(i), [num_labels], initializer=tf.zeros_initializer())
 
         with tf.variable_scope("loss_" + str(i)):
-            if is_training:
+            if is_training or is_finetune:
                 # I.e., 0.1 dropout
                 output_layer = tf.nn.dropout(output_layer, keep_prob=0.9)
 
@@ -1043,15 +1044,17 @@ class bert_cls:
         vocab_file = "/search/odin/guobk/data/labels/data/model_all/vocab.txt"
         self.max_seq_length = 128
         output_dir = "/search/odin/guobk/data/labels/data/model_all"
+        self.modelckpt = '/search/odin/guobk/data/labels/性别倾向new/model/'
         path_map = os.path.join(data_dir, 'map_index.json')
         path_alpha = os.path.join(data_dir, 'label_alpha.json')
-        D_map = json.load(open(path_map, 'r'))
+        self.D_map = json.load(open(path_map, 'r'))
         D_alpha0 = json.load(open(path_alpha, 'r'))
-        D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
+        D_alpha = {k: [D_alpha0[k][kk] for kk in self.D_map[k]] for k in self.D_map}
         self.L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
-        self.D_map_inv = [{D_map[self.L0[i]][t]:t for t in D_map[self.L0[i]]} for i in range(len(self.L0))]
+        self.D_map_inv = [{self.D_map[self.L0[i]][t]:t for t in self.D_map[self.L0[i]]} for i in range(len(self.L0))]
         tf.logging.set_verbosity(tf.logging.INFO)
         is_training = False
+        is_finetune = True
         processors = {
             "cola": ColaProcessor,
             "mnli": MnliProcessor,
@@ -1071,27 +1074,90 @@ class bert_cls:
         self.Num_labels = [len(label_list) for label_list in self.label_lists]
         self.Label_ids = [tf.placeholder(tf.int32, shape=[None, ], name="label_ids_" + str(i)) for i in
                           range(len(self.Num_labels))]
-        (Loss, LossList, LogitsList, self.ProbList, Per_example_loss) = create_model(
+        (Loss, self.LossList, LogitsList, self.ProbList, Per_example_loss) = create_model(
             bert_config, is_training, self.input_ids, self.input_mask, self.segment_ids, self.Label_ids,
-            self.Num_labels, use_one_hot_embeddings=False)
+            self.Num_labels, use_one_hot_embeddings=False,is_finetune=is_finetune)
         self.saver = tf.train.Saver(max_to_keep=None)
         self.session = tf.Session()
         self.session.run(tf.global_variables_initializer())
         init_checkpoint = tf.train.latest_checkpoint(output_dir)
         self.saver.restore(self.session, init_checkpoint)
-    def finetune(self):
-        with tf.Session() as self.session:
-            vs = tf.trainable_variables()
-            print(vs)
+        self.learning_rate = 0.1
+    def finetune(self,idx = 0):
         update_var_list = []  # 该list中的变量参与参数更新
         tvars = tf.trainable_variables()
         for tvar in tvars:
-            if "bert" not in tvar.name:
+            if "bert" not in tvar.name and '_'+str(idx) in tvar.name:
                 update_var_list.append(tvar)
         print('------')
         for t in update_var_list:
             print(t)
-        #train_op = tf.train.AdamOptimizer(FLAGS.lr).minimize(loss, global_step=global_step, var_list=update_var_list)
+        loss = self.LossList[idx]
+        global_step = tf.train.get_or_create_global_step()
+        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
+        train_op = optimizer.minimize(loss, var_list=update_var_list)
+        new_global_step = global_step + 1
+        train_op = tf.group(train_op, [global_step.assign(new_global_step)])
+        saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
+        X_input_ids, X_segment_ids, X_input_mask, Y = self.getData(idx,'train')
+        X_input_ids1, X_segment_ids1, X_input_mask1, Y1 = self.getData(idx, 'dev')
+        feed_dict1 = {self.input_ids: X_input_ids1, self.segment_ids: X_segment_ids1,
+                     self.input_mask: X_input_mask1, self.Label_ids[idx]: Y1}
+        Idx0 = [i for i in range(len(X_input_ids))]
+        batch_size = 32
+        epochs = 10
+        import random
+        sess = self.session
+        nb_max_batch = int(len(X_input_ids) / batch_size)
+        for epoch in range(epochs):
+            random.shuffle(Idx0)
+            X_input_ids = [X_input_ids[i] for i in Idx0]
+            X_segment_ids = [X_segment_ids[i] for i in Idx0]
+            X_input_mask = [X_input_mask[i] for i in Idx0]
+            Y = [Y[i] for i in Idx0]
+
+            P = sess.run(self.ProbList[idx],feed_dict = feed_dict1)
+            p = [np.argmax(t) for t in P]
+            acc = sum([p[i]==Y1[i] for i in range(len(p))])/len(p)
+            print('Epoch: {}, dev acc: {}'.format(epoch,acc))
+            checkpoint_path = os.path.join(self.modelckpt, 'model.ckpt')
+            saver.save(sess, checkpoint_path, global_step=global_step)
+
+            for i in range(nb_max_batch):
+                batch_input = X_input_ids[i*batch_size:(i+1)*batch_size]
+                batch_segment = X_segment_ids[i*batch_size:(i+1)*batch_size]
+                batch_mask = X_input_mask[i*batch_size:(i+1)*batch_size]
+                batch_y = Y[i*batch_size:(i+1)*batch_size]
+                feed_dict = {self.input_ids: batch_input, self.segment_ids: batch_segment,
+                             self.input_mask: batch_mask, self.Label_ids[idx]: batch_y}
+                loss_,_ = sess.run([loss,train_op],feed_dict=feed_dict)
+                print('Epoch: {}, step: {}, train loss: {}'.format(epoch,i,loss_))
+        P = sess.run(self.ProbList[idx], feed_dict=feed_dict1)
+        p = [np.argmax(t) for t in P]
+        acc = sum([p[i] == Y1[i] for i in range(len(p))]) / len(p)
+        print('Final dev acc: {}'.format(acc))
+        checkpoint_path = os.path.join(self.modelckpt, 'model.ckpt')
+        saver.save(sess, checkpoint_path, global_step=global_step)
+        #P = self.session.run(self.ProbList, feed_dict=feed_dict)
+    def getData(self,idx=0,mode='train'):
+        with open("/search/odin/guobk/data/labels/性别倾向new/Data.json",'r') as f:
+            D = json.load(f)
+        Map = self.D_map[self.L0[idx]]
+        Trn = D[mode]
+        X_input_ids = []
+        X_segment_ids = []
+        X_input_mask = []
+        Y = []
+        for i in range(len(Trn)):
+            inputStr = Trn[i][0]
+            example = InputExample(guid='guid', text_a=inputStr, label=['0' for _ in range(len(self.Num_labels))])
+            feature = convert_single_example(10, example, self.label_lists, self.max_seq_length, self.tokenizer)
+            X_input_ids.append(feature.input_ids)
+            X_segment_ids.append(feature.segment_ids)
+            X_input_mask.append(feature.input_mask)
+            Y.append(Map[Trn[i][1]])
+        return X_input_ids,X_segment_ids,X_input_mask,Y
+
 
     def predict(self,inputStr):
         example = InputExample(guid='guid', text_a=inputStr, label=['0' for _ in range(len(self.Num_labels))])
