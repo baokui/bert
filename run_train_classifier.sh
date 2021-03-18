@@ -205,7 +205,7 @@ nohup python -u run_classifier1.py \
 export CUDA_VISIBLE_DEVICES=7
 BERT_BASE_DIR=/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12
 task_name=newlabel
-output_dir=/search/odin/guobk/data/labels/data_new/model/
+output_dir=/search/odin/guobk/data/labels/data_new/model32/
 mkdir -p $output_dir
 mkdir log
 nohup python -u run_classifier.py \
@@ -220,4 +220,23 @@ nohup python -u run_classifier.py \
     --do_predict=False \
     --do_train=True \
     --num_train_epochs=10 \
-    --do_eval=False >> log/labelmodel-train-$task_name.log 2>&1 &
+    --do_eval=False >> log/labelmodel-train-$task_name-32.log 2>&1 &
+
+### 句库新标签 - max_seq_length=32 - pretrained with juku content
+export CUDA_VISIBLE_DEVICES=7
+task_name=newlabel
+output_dir=/search/odin/guobk/data/labels/data_new/model_pretrain/finetune/
+mkdir -p $output_dir
+nohup python -u run_classifier.py \
+    --data_dir=/search/odin/guobk/data/labels/data_new \
+    --bert_config_file=/search/odin/guobk/data/labels/data_new/model_pretrain/bert_config.json \
+    --task_name=$task_name \
+    --vocab_file=/search/odin/guobk/data/labels/data_new/model_pretrain/vocab.txt \
+    --output_dir=$output_dir \
+    --train_batch_size=8 \
+    --init_checkpoint=/search/odin/guobk/data/labels/data_new/model_pretrain/ckpt/model.ckpt-84000 \
+    --max_seq_length=32 \
+    --do_predict=False \
+    --do_train=True \
+    --num_train_epochs=10 \
+    --do_eval=False >> log/labelmodel-train-$task_name-32-pre.log 2>&1 &

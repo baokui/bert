@@ -1140,7 +1140,25 @@ def test():
     path_model = '/search/odin/guobk/data/labels/data_new/model/'
     max_seq_length = 128
     path_data = '/search/odin/guobk/data/labels/data_new/'
-    init_checkpoint = '/search/odin/guobk/data/labels/data_new/model/model.ckpt-2000'
+    init_checkpoint = '/search/odin/guobk/data/labels/data_new/model/model.ckpt-3000'
+    init_checkpoint = None
+
+    path_vocab = '/search/odin/guobk/data/labels/data_new/vocab.txt'
+    path_config = '/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json'
+    path_model = '/search/odin/guobk/data/labels/data_new/model32/'
+    max_seq_length = 32
+    path_data = '/search/odin/guobk/data/labels/data_new/'
+    init_checkpoint = '/search/odin/guobk/data/labels/data_new/model32/model.ckpt-3000'
+    init_checkpoint = None
+
+    task_name = 'newlabel'
+    path_vocab = '/search/odin/guobk/data/labels/data_new/model_pretrain/vocab.txt'
+    path_config = '/search/odin/guobk/data/labels/data_new/model_pretrain/bert_config.json'
+    path_model = '/search/odin/guobk/data/labels/data_new/model_pretrain/finetune'
+    max_seq_length = 32
+    path_data = '/search/odin/guobk/data/labels/data_new/'
+    init_checkpoint = '/search/odin/guobk/data/labels/data_new/model_pretrain/finetune/model.ckpt-3000'
+
     model = bert_cls(task_name,path_data,path_vocab,path_config,path_model,init_checkpoint,max_seq_length)
     D_alpha = model.D_alpha
     #json.load(open(os.path.join(path_data, 'D_label.json'), 'r'))
@@ -1149,13 +1167,16 @@ def test():
         S = f.read().strip().split('\n')
     S = [s.split('\t') for s in S]
     R0 = []
+    R1 = []
     for i in range(len(S)):
         inputStr = S[i][0]
         p,y = model.predict(inputStr)
         R0.append([inputStr,S[i][1],str(p)])
+        R1.append([inputStr,D_alpha_inv[S[i][1]],D_alpha_inv[str(p)]]+[D_alpha_inv[str(j)]+'/%0.4f'%y[j] for j in range(len(D_alpha))])
         if i%100==0:
             print(i,len(S))
             print('acc=%0.2f'%(len([r for r in R0 if r[1]==r[2]])/len(R0)))
+    R2 = [r for r in R1 if r[1]!=r[2]]
     X = []
     for i in range(7):
         X.append([r for r in R0 if r[1]==str(i)])
@@ -1187,6 +1208,32 @@ def test():
     X1 = [r[0]+'\t'+D_alpha_inv[r[1]] for r in R1]
     with open(os.path.join(path_data, 'result_test.txt'), 'w') as f:
         f.write('\n'.join(X1))
+
+    import json
+    with open(os.path.join(path_data,'predict-dev.json'),'r') as f:
+        D = json.load(f)
+    R = {}
+    for k in D:
+        r = []
+        for i in range(len(D[k])):
+            inputStr = D[k][i]
+            p,y = model.predict(inputStr)
+            r.append(D_alpha_inv[str(p)])
+        R[k] = r
+    with open(os.path.join(path_data,'predict-dev-result.json'),'w') as f:
+        json.dump(R,f,ensure_ascii=False,indent=4)
+    with open(os.path.join(path_data,'predict-test.json'),'r') as f:
+        D = json.load(f)
+    R = {}
+    for k in D:
+        r = []
+        for i in range(len(D[k])):
+            inputStr = D[k][i]
+            p,y = model.predict(inputStr)
+            r.append(D_alpha_inv[str(p)])
+        R[k] = r
+    with open(os.path.join(path_data, 'predict-test-result.json'), 'w') as f:
+        json.dump(R, f, ensure_ascii=False, indent=4)
 
 if __name__ == "__main__":
   flags.mark_flag_as_required("data_dir")
