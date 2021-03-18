@@ -1108,6 +1108,7 @@ class bert_cls:
         epochs = 10
         import random
         sess = self.session
+        sess.run(tf.global_variables_initializer())
         nb_max_batch = int(len(X_input_ids) / batch_size)
         for epoch in range(epochs):
             random.shuffle(Idx0)
@@ -1115,14 +1116,14 @@ class bert_cls:
             X_segment_ids = [X_segment_ids[i] for i in Idx0]
             X_input_mask = [X_input_mask[i] for i in Idx0]
             Y = [Y[i] for i in Idx0]
-
+            # dev
             P = sess.run(self.ProbList[idx],feed_dict = feed_dict1)
             p = [np.argmax(t) for t in P]
             acc = sum([p[i]==Y1[i] for i in range(len(p))])/len(p)
             print('Epoch: {}, dev acc: {}'.format(epoch,acc))
             checkpoint_path = os.path.join(self.modelckpt, 'model.ckpt')
             saver.save(sess, checkpoint_path, global_step=global_step)
-
+            #
             for i in range(nb_max_batch):
                 batch_input = X_input_ids[i*batch_size:(i+1)*batch_size]
                 batch_segment = X_segment_ids[i*batch_size:(i+1)*batch_size]
