@@ -1071,7 +1071,7 @@ class bert_cls:
         self.input_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_ids')
         self.input_mask = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_mask')
         self.segment_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='segment_ids')
-        self.keep_prob = tf.Variable(1.0, name="keep_prob")
+        self.keep_prob = tf.placeholder(tf.float32, name='keep_prob')
         self.label_lists = processor.get_labels(D_alpha)
         self.Num_labels = [len(label_list) for label_list in self.label_lists]
         self.Label_ids = [tf.placeholder(tf.int32, shape=[None, ], name="label_ids_" + str(i)) for i in
@@ -1160,8 +1160,6 @@ class bert_cls:
             X_input_mask.append(feature.input_mask)
             Y.append(Map[Trn[i][1]])
         return X_input_ids,X_segment_ids,X_input_mask,Y
-
-
     def predict(self,inputStr):
         example = InputExample(guid='guid', text_a=inputStr, label=['0' for _ in range(len(self.Num_labels))])
         feature = convert_single_example(10, example, self.label_lists, self.max_seq_length, self.tokenizer)
