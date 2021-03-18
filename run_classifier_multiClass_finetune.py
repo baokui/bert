@@ -1190,7 +1190,7 @@ class bert_cls:
             result = {self.D_map_inv[i][j]: np.float(p[j]) for j in range(len(p))}
             R[self.L0[i]] = [label,score,result]
         return R,P
-def main0(_):
+def main(_):
     model = bert_cls()
     model.init(2)
     model.finetune(2)
