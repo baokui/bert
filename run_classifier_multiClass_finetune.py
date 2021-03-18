@@ -827,7 +827,7 @@ def netConfig():
     tvars = [v for v in tf.trainable_variables()]
     for t in tvars:
         print(t)
-def main(_):
+def main0(_):
     import json
     FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
     FLAGS.task_name = "all"
@@ -1044,7 +1044,7 @@ class bert_cls:
         bert_config_file = "/search/odin/guobk/data/labels/data/model_all/bert_config.json"
         vocab_file = "/search/odin/guobk/data/labels/data/model_all/vocab.txt"
         self.max_seq_length = 128
-        output_dir = "/search/odin/guobk/data/labels/data/model_all"
+        self.output_dir = "/search/odin/guobk/data/labels/data/model_all"
         self.modelckpt = '/search/odin/guobk/data/labels/性别倾向new/model/'
         path_map = os.path.join(data_dir, 'map_index.json')
         path_alpha = os.path.join(data_dir, 'label_alpha.json')
@@ -1079,37 +1079,39 @@ class bert_cls:
         (Loss, self.LossList, LogitsList, self.ProbList, Per_example_loss) = create_model(
             bert_config, is_training, self.input_ids, self.input_mask, self.segment_ids, self.Label_ids,
             self.Num_labels, use_one_hot_embeddings=False,keep_prob = self.keep_prob)
+    def init(self,idx = 0):
+        update_var_list = []  # 该list中的变量参与参数更新
+        tvars = tf.trainable_variables()
+        for tvar in tvars:
+            if "bert" not in tvar.name and '_' + str(idx) in tvar.name:
+                update_var_list.append(tvar)
+        print('------')
+        for t in update_var_list:
+            print(t)
+        self.loss = self.LossList[idx]
         self.saver = tf.train.Saver(max_to_keep=None)
         self.session = tf.Session()
         self.global_step = tf.train.get_or_create_global_step()
         self.learning_rate = 0.1
         self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
+        train_op = self.optimizer.minimize(self.loss, var_list=update_var_list)
+        new_global_step = self.global_step + 1
+        self.train_op = tf.group(train_op, [self.global_step.assign(new_global_step)])
         self.session.run(tf.global_variables_initializer())
-        init_checkpoint = tf.train.latest_checkpoint(output_dir)
+        init_checkpoint = tf.train.latest_checkpoint(self.output_dir)
         self.saver.restore(self.session, init_checkpoint)
     def finetune(self,idx = 0):
-        update_var_list = []  # 该list中的变量参与参数更新
-        tvars = tf.trainable_variables()
-        for tvar in tvars:
-            if "bert" not in tvar.name and '_'+str(idx) in tvar.name:
-                update_var_list.append(tvar)
-        print('------')
-        for t in update_var_list:
-            print(t)
-        loss = self.LossList[idx]
-        train_op = self.optimizer.minimize(loss, var_list=update_var_list)
-        new_global_step = self.global_step + 1
-        train_op = tf.group(train_op, [self.global_step.assign(new_global_step)])
-        saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
         X_input_ids, X_segment_ids, X_input_mask, Y = self.getData(idx,'train')
-        X_input_ids1, X_segment_ids1, X_input_mask1, Y1 = self.getData(idx, 'dev')
+        X_input_ids0, X_segment_ids0, X_input_mask0, Y0 = self.getData(idx, 'dev0')
+        feed_dict0 = {self.input_ids: X_input_ids0, self.segment_ids: X_segment_ids0,
+                     self.input_mask: X_input_mask0, self.Label_ids[idx]: Y0,self.keep_prob:1.0}
+        X_input_ids1, X_segment_ids1, X_input_mask1, Y1 = self.getData(idx, 'dev1')
         feed_dict1 = {self.input_ids: X_input_ids1, self.segment_ids: X_segment_ids1,
-                     self.input_mask: X_input_mask1, self.Label_ids[idx]: Y1,self.keep_prob:1.0}
+                      self.input_mask: X_input_mask1, self.Label_ids[idx]: Y1, self.keep_prob: 1.0}
         Idx0 = [i for i in range(len(X_input_ids))]
         batch_size = 32
         epochs = 10
         import random
-        sess = self.session
         #sess.run(tf.global_variables_initializer())
         nb_max_batch = int(len(X_input_ids) / batch_size)
         for epoch in range(epochs):
@@ -1119,12 +1121,16 @@ class bert_cls:
             X_input_mask = [X_input_mask[i] for i in Idx0]
             Y = [Y[i] for i in Idx0]
             # dev
-            P = sess.run(self.ProbList[idx],feed_dict = feed_dict1)
+            P = self.session.run(self.ProbList[idx], feed_dict=feed_dict0)
             p = [np.argmax(t) for t in P]
-            acc = sum([p[i]==Y1[i] for i in range(len(p))])/len(p)
-            print('Epoch: {}, dev acc: {}'.format(epoch,acc))
+            acc0 = sum([p[i] == Y0[i] for i in range(len(p))]) / len(p)
+            P = self.session.run(self.ProbList[idx],feed_dict = feed_dict1)
+            p = [np.argmax(t) for t in P]
+            acc1 = sum([p[i]==Y1[i] for i in range(len(p))])/len(p)
+            acc_all = (acc0*len(X_input_ids0)+acc1*len(X_input_ids1))/(len(X_input_ids1)+len(X_input_ids0))
+            print('Epoch: {}, dev acc0: {}, acc1: {}, acc_all:{}'.format(epoch,acc0,acc1,acc_all))
             checkpoint_path = os.path.join(self.modelckpt, 'model.ckpt')
-            saver.save(sess, checkpoint_path, global_step=self.global_step)
+            self.saver.save(self.session, checkpoint_path, global_step=self.global_step)
             #
             for i in range(nb_max_batch):
                 batch_input = X_input_ids[i*batch_size:(i+1)*batch_size]
@@ -1133,14 +1139,18 @@ class bert_cls:
                 batch_y = Y[i*batch_size:(i+1)*batch_size]
                 feed_dict = {self.input_ids: batch_input, self.segment_ids: batch_segment,
                              self.input_mask: batch_mask, self.Label_ids[idx]: batch_y,self.keep_prob:0.8}
-                loss_,_ = sess.run([loss,train_op],feed_dict=feed_dict)
+                loss_,_ = self.session.run([self.loss,self.train_op],feed_dict=feed_dict)
                 print('Epoch: {}, step: {}, train loss: {}'.format(epoch,i,loss_))
-        P = sess.run(self.ProbList[idx], feed_dict=feed_dict1)
+        P = self.session.run(self.ProbList[idx], feed_dict=feed_dict0)
         p = [np.argmax(t) for t in P]
-        acc = sum([p[i] == Y1[i] for i in range(len(p))]) / len(p)
-        print('Final dev acc: {}'.format(acc))
+        acc0 = sum([p[i] == Y0[i] for i in range(len(p))]) / len(p)
+        P = self.session.run(self.ProbList[idx], feed_dict=feed_dict1)
+        p = [np.argmax(t) for t in P]
+        acc1 = sum([p[i] == Y1[i] for i in range(len(p))]) / len(p)
+        acc_all = (acc0 * len(X_input_ids0) + acc1 * len(X_input_ids1)) / (len(X_input_ids1) + len(X_input_ids0))
+        print('Final, dev acc0: {}, acc1: {}, acc_all:{}'.format(acc0, acc1, acc_all))
         checkpoint_path = os.path.join(self.modelckpt, 'model.ckpt')
-        saver.save(sess, checkpoint_path, global_step=global_step)
+        self.saver.save(self.session, checkpoint_path, global_step=self.global_step)
         #P = self.session.run(self.ProbList, feed_dict=feed_dict)
     def getData(self,idx=0,mode='train'):
         with open("/search/odin/guobk/data/labels/性别倾向new/Data.json",'r') as f:
@@ -1180,22 +1190,10 @@ class bert_cls:
             result = {self.D_map_inv[i][j]: np.float(p[j]) for j in range(len(p))}
             R[self.L0[i]] = [label,score,result]
         return R,P
-def demo():
+def main0(_):
     model = bert_cls()
-    data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
-    path_test = os.path.join(data_dir,'test.txt')
-    output_dir = "model/label/all"
-    L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
-    with open(path_test,'r',encoding='utf-8') as f:
-        S = f.read().strip().split('\n')
-    P = [[] for i in range(len(L0))]
-    for i in range(len(S)):
-        r,p = model.predict(S[i].split('\t')[0])
-        for j in range(len(L0)):
-            P[j].append('\t'.join(['%0.5f'%t for t in p[j]]))
-    for i in range(len(L0)):
-        with open(os.path.join(output_dir,'result_test_{}.txt'.format(L0[i])),'w') as f:
-            f.write('\n'.join(P[i]))
+    model.init(2)
+    model.finetune(2)
 
 if __name__ == "__main__":
     # flags.mark_flag_as_required("data_dir")
