@@ -1038,11 +1038,11 @@ def main(_):
 class bert_cls:
     def __init__(self,task_name='all',gpu='5'):
         #os.environ['CUDA_VISIBLE_DEVICES'] = gpu
-        data_dir = "/search/odin/guobk/vpa/vpa-studio-research/labelClassify/DataLabel"
+        data_dir = "/search/odin/guobk/data/labels/data/"
         bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
         vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
         self.max_seq_length = 128
-        output_dir = "model/label/" + task_name
+        output_dir = "/search/odin/guobk/data/labels/data/model_all"
         path_map = os.path.join(data_dir, 'map_index.json')
         path_alpha = os.path.join(data_dir, 'label_alpha.json')
         D_map = json.load(open(path_map, 'r'))

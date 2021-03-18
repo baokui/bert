@@ -607,7 +607,7 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 
 def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
-                 Labels, Num_labels, use_one_hot_embeddings,is_finetune=False):
+                 Labels, Num_labels, use_one_hot_embeddings,keep_prob = 1.0):
     """Creates a classification model."""
     model = modeling.BertModel(
         config=bert_config,
@@ -642,9 +642,10 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
             "output_bias_" + str(i), [num_labels], initializer=tf.zeros_initializer())
 
         with tf.variable_scope("loss_" + str(i)):
-            if is_training or is_finetune:
-                # I.e., 0.1 dropout
-                output_layer = tf.nn.dropout(output_layer, keep_prob=0.9)
+            # if is_training or is_finetune:
+            #     # I.e., 0.1 dropout
+            #     output_layer = tf.nn.dropout(output_layer, keep_prob=0.9)
+            output_layer = tf.nn.dropout(output_layer, keep_prob=keep_prob)
 
             logits = tf.matmul(output_layer, output_weights, transpose_b=True)
             logits = tf.nn.bias_add(logits, output_bias)
@@ -1070,13 +1071,14 @@ class bert_cls:
         self.input_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_ids')
         self.input_mask = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_mask')
         self.segment_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='segment_ids')
+        self.keep_prob = tf.Variable(1.0, name="keep_prob")
         self.label_lists = processor.get_labels(D_alpha)
         self.Num_labels = [len(label_list) for label_list in self.label_lists]
         self.Label_ids = [tf.placeholder(tf.int32, shape=[None, ], name="label_ids_" + str(i)) for i in
                           range(len(self.Num_labels))]
         (Loss, self.LossList, LogitsList, self.ProbList, Per_example_loss) = create_model(
             bert_config, is_training, self.input_ids, self.input_mask, self.segment_ids, self.Label_ids,
-            self.Num_labels, use_one_hot_embeddings=False,is_finetune=is_finetune)
+            self.Num_labels, use_one_hot_embeddings=False,keep_prob = self.keep_prob)
         self.saver = tf.train.Saver(max_to_keep=None)
         self.session = tf.Session()
         self.session.run(tf.global_variables_initializer())
@@ -1102,7 +1104,7 @@ class bert_cls:
         X_input_ids, X_segment_ids, X_input_mask, Y = self.getData(idx,'train')
         X_input_ids1, X_segment_ids1, X_input_mask1, Y1 = self.getData(idx, 'dev')
         feed_dict1 = {self.input_ids: X_input_ids1, self.segment_ids: X_segment_ids1,
-                     self.input_mask: X_input_mask1, self.Label_ids[idx]: Y1}
+                     self.input_mask: X_input_mask1, self.Label_ids[idx]: Y1,self.keep_prob:1.0}
         Idx0 = [i for i in range(len(X_input_ids))]
         batch_size = 32
         epochs = 10
@@ -1130,7 +1132,7 @@ class bert_cls:
                 batch_mask = X_input_mask[i*batch_size:(i+1)*batch_size]
                 batch_y = Y[i*batch_size:(i+1)*batch_size]
                 feed_dict = {self.input_ids: batch_input, self.segment_ids: batch_segment,
-                             self.input_mask: batch_mask, self.Label_ids[idx]: batch_y}
+                             self.input_mask: batch_mask, self.Label_ids[idx]: batch_y,self.keep_prob:0.8}
                 loss_,_ = sess.run([loss,train_op],feed_dict=feed_dict)
                 print('Epoch: {}, step: {}, train loss: {}'.format(epoch,i,loss_))
         P = sess.run(self.ProbList[idx], feed_dict=feed_dict1)
@@ -1167,7 +1169,7 @@ class bert_cls:
         X_segment_ids = feature.segment_ids
         X_input_mask = feature.input_mask
         feed_dict = {self.input_ids: [X_input_ids], self.segment_ids: [X_segment_ids],
-                     self.input_mask: [X_input_mask]}
+                     self.input_mask: [X_input_mask],self.keep_prob:1.0}
         P = self.session.run(self.ProbList, feed_dict=feed_dict)
         P = [p[0] for p in P]
         R = {}
