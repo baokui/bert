@@ -1081,10 +1081,12 @@ class bert_cls:
             self.Num_labels, use_one_hot_embeddings=False,keep_prob = self.keep_prob)
         self.saver = tf.train.Saver(max_to_keep=None)
         self.session = tf.Session()
+        self.global_step = tf.train.get_or_create_global_step()
+        self.learning_rate = 0.1
+        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
         self.session.run(tf.global_variables_initializer())
         init_checkpoint = tf.train.latest_checkpoint(output_dir)
         self.saver.restore(self.session, init_checkpoint)
-        self.learning_rate = 0.1
     def finetune(self,idx = 0):
         update_var_list = []  # 该list中的变量参与参数更新
         tvars = tf.trainable_variables()
@@ -1095,11 +1097,9 @@ class bert_cls:
         for t in update_var_list:
             print(t)
         loss = self.LossList[idx]
-        global_step = tf.train.get_or_create_global_step()
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
-        train_op = optimizer.minimize(loss, var_list=update_var_list)
-        new_global_step = global_step + 1
-        train_op = tf.group(train_op, [global_step.assign(new_global_step)])
+        train_op = self.optimizer.minimize(loss, var_list=update_var_list)
+        new_global_step = self.global_step + 1
+        train_op = tf.group(train_op, [self.global_step.assign(new_global_step)])
         saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
         X_input_ids, X_segment_ids, X_input_mask, Y = self.getData(idx,'train')
         X_input_ids1, X_segment_ids1, X_input_mask1, Y1 = self.getData(idx, 'dev')
@@ -1110,7 +1110,7 @@ class bert_cls:
         epochs = 10
         import random
         sess = self.session
-        sess.run(tf.global_variables_initializer())
+        #sess.run(tf.global_variables_initializer())
         nb_max_batch = int(len(X_input_ids) / batch_size)
         for epoch in range(epochs):
             random.shuffle(Idx0)
@@ -1124,7 +1124,7 @@ class bert_cls:
             acc = sum([p[i]==Y1[i] for i in range(len(p))])/len(p)
             print('Epoch: {}, dev acc: {}'.format(epoch,acc))
             checkpoint_path = os.path.join(self.modelckpt, 'model.ckpt')
-            saver.save(sess, checkpoint_path, global_step=global_step)
+            saver.save(sess, checkpoint_path, global_step=self.global_step)
             #
             for i in range(nb_max_batch):
                 batch_input = X_input_ids[i*batch_size:(i+1)*batch_size]
