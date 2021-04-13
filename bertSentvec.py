@@ -843,6 +843,7 @@ def train(_):
 
     is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
     run_config = tf.contrib.tpu.RunConfig(
+        keep_checkpoint_max=None,
         cluster=tpu_cluster_resolver,
         master=FLAGS.master,
         model_dir=FLAGS.output_dir,
@@ -1125,7 +1126,7 @@ def test():
     with open('model/sort/test_predict.json','w') as f:
         json.dump(R,f,ensure_ascii=False,indent=4)
 def demo_retrieval():
-    initial_checkpoint = 'model/sort/model.ckpt-58000'
+    initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model1/model.ckpt-806510'
     with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121.json','r') as f:
         D = json.load(f)
     with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121.json','r') as f:
@@ -1140,12 +1141,12 @@ def demo_retrieval():
         D[i]['bert-sort'] = list(Y_dc[i])
     for i in range(len(Q)):
         Q[i]['bert-sort'] = list(Y_qr[i])
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121_bertsort.json','w') as f:
+    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121_bertsort_new.json','w') as f:
         json.dump(D,f,ensure_ascii=False,indent=4)
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121_bertsort.json','w') as f:
+    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121_bertsort_new.json','w') as f:
         json.dump(Q,f,ensure_ascii=False,indent=4)
 def demo_retrieval_pretrain():
-    initial_checkpoint = 'model/sort/model.ckpt-58000'
+    initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model1/model.ckpt-806510'
     with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121.json','r') as f:
         D = json.load(f)
     with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121.json','r') as f:
@@ -1160,9 +1161,9 @@ def demo_retrieval_pretrain():
         D[i]['bert-pre'] = list(Y_dc[i])
     for i in range(len(Q)):
         Q[i]['bert-pre'] = list(Y_qr[i])
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121_bertpre.json','w') as f:
+    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121_bertpre_new.json','w') as f:
         json.dump(D,f,ensure_ascii=False,indent=4)
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121_bertpre.json','w') as f:
+    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121_bertpre_new.json','w') as f:
         json.dump(Q,f,ensure_ascii=False,indent=4)
 def demo_test():
     initial_checkpoint = 'model/sort/model.ckpt-58000'
