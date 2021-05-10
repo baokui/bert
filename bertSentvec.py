@@ -89,6 +89,8 @@ flags.DEFINE_float("learning_rate", 5e-5, "The initial learning rate for Adam.")
 flags.DEFINE_float("num_train_epochs", 3.0,
                    "Total number of training epochs to perform.")
 
+flags.DEFINE_float("number_examples", 0, "number_examples")
+
 flags.DEFINE_float(
     "warmup_proportion", 0.1,
     "Proportion of training to perform linear learning rate warmup for. "
@@ -541,7 +543,7 @@ def file_based_convert_examples_to_features(
     writer.close()
 
 
-def file_based_input_fn_builder(input_file, seq_length, is_training,
+def file_based_input_fn_builder(input_files, seq_length, is_training,
                                 drop_remainder):
     """Creates an `input_fn` closure to be passed to TPUEstimator."""
 
@@ -569,7 +571,7 @@ def file_based_input_fn_builder(input_file, seq_length, is_training,
 
         return example
 
-    def input_fn(params):
+    def input_fn0(params):
         """The actual input function."""
         batch_size = params["batch_size"]
 
@@ -587,7 +589,31 @@ def file_based_input_fn_builder(input_file, seq_length, is_training,
                 drop_remainder=drop_remainder))
 
         return d
+    def input_fn(params):
+        """The actual input function."""
+        num_cpu_threads = 4
+        batch_size = params["batch_size"]
+        d = tf.data.Dataset.from_tensor_slices(tf.constant(input_files))
+        d = d.repeat()
+        d = d.shuffle(buffer_size=len(input_files))
+        # `cycle_length` is the number of parallel files that get read.
+        cycle_length = min(num_cpu_threads, len(input_files))
 
+        # `sloppy` mode means that the interleaving is not exact. This adds
+        # even more randomness to the training pipeline.
+        d = d.apply(
+            tf.contrib.data.parallel_interleave(
+                tf.data.TFRecordDataset,
+                sloppy=is_training,
+                cycle_length=cycle_length))
+        d = d.shuffle(buffer_size=100)
+        d = d.apply(
+            tf.contrib.data.map_and_batch(
+                lambda record: _decode_record(record, name_to_features),
+                batch_size=batch_size,
+                num_parallel_batches=num_cpu_threads,
+                drop_remainder=drop_remainder))
+        return d
     return input_fn
 
 
@@ -719,10 +745,12 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         if mode == tf.estimator.ModeKeys.TRAIN:
             train_op = optimization.create_optimizer(
                 total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
+            logging_hook = tf.train.LoggingTensorHook({"loss": total_loss}, every_n_iter=10)
             output_spec = tf.contrib.tpu.TPUEstimatorSpec(
                 mode=mode,
                 loss=total_loss,
                 train_op=train_op,
+                training_hooks=[logging_hook],
                 scaffold_fn=scaffold_fn)
         return output_spec
     return model_fn
@@ -806,6 +834,7 @@ def netConfig():
     for t in tvars:
         print(t)
 def train(_):
+    tf.logging.set_verbosity(tf.logging.INFO)
     # FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
     # FLAGS.task_name = "sort"
     # FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
@@ -843,7 +872,7 @@ def train(_):
 
     is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
     run_config = tf.contrib.tpu.RunConfig(
-        keep_checkpoint_max=None,
+        keep_checkpoint_max=10,
         cluster=tpu_cluster_resolver,
         master=FLAGS.master,
         model_dir=FLAGS.output_dir,
@@ -857,13 +886,16 @@ def train(_):
     num_train_steps = None
     num_warmup_steps = None
     print('Data processing')
-    if FLAGS.do_train:
-        tf.logging.info("***** Data processing *****")
-        train_examples = processor.get_train_examples(FLAGS.data_dir)
-        num_train_steps = int(
-            len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
-        num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
-        tf.logging.info("***** Data processing over *****")
+    num_train_steps = int(FLAGS.number_examples / FLAGS.train_batch_size * FLAGS.num_train_epochs)
+    num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
+    # if FLAGS.do_train:
+    #     tf.logging.info("***** Data processing *****")
+    #     train_examples = processor.get_train_examples(FLAGS.data_dir)
+    #     num_train_steps = int(
+    #         len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
+    #     num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
+    #     tf.logging.info("num_train_samples is {} and num_train_steps is {}".format(len(train_examples),num_train_steps))
+    #     tf.logging.info("***** Data processing over *****")
     print('Initial from ckpt...')
     model_fn = model_fn_builder(
         bert_config=bert_config,
@@ -885,15 +917,18 @@ def train(_):
         predict_batch_size=FLAGS.predict_batch_size)
 
     if FLAGS.do_train:
-        train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
-        file_based_convert_examples_to_features(
-            train_examples, label_lists,FLAGS.max_seq_length, tokenizer, train_file)
-        tf.logging.info("***** Running training *****")
-        tf.logging.info("  Num examples = %d", len(train_examples))
-        tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
-        tf.logging.info("  Num steps = %d", num_train_steps)
+        # train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
+        # file_based_convert_examples_to_features(
+        #     train_examples, label_lists,FLAGS.max_seq_length, tokenizer, train_file)
+        # tf.logging.info("***** Running training *****")
+        # tf.logging.info("  Num examples = %d", len(train_examples))
+        # tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
+        # tf.logging.info("  Num steps = %d", num_train_steps)
+        fs0 = os.listdir(FLAGS.data_dir)
+        train_files = [os.path.join(FLAGS.data_dir, ff) for ff in fs0]
+        print("train_files:",train_files)
         train_input_fn = file_based_input_fn_builder(
-            input_file=train_file,
+            input_files=train_files,
             seq_length=FLAGS.max_seq_length,
             is_training=True,
             drop_remainder=True
@@ -1126,25 +1161,44 @@ def test():
     with open('model/sort/test_predict.json','w') as f:
         json.dump(R,f,ensure_ascii=False,indent=4)
 def demo_retrieval():
-    initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model1/model.ckpt-806510'
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121.json','r') as f:
+    initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model3/model.ckpt-601000'
+    with open('/search/odin/guobk/data_tmp/D0.json','r') as f:
         D = json.load(f)
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121.json','r') as f:
-        Q = json.load(f)
+    with open('/search/odin/guobk/data_tmp/D1.json','r') as f:
+        Q1 = json.load(f)
+    with open('/search/odin/guobk/data_tmp/D2.json','r') as f:
+        Q2 = json.load(f)
     Sd = [d['content'] for d in D]
-    Sq = [d['content'] for d in Q]
+    Sq1 = [d['content'] for d in Q1]
+    Sq2 = [d['content'] for d in Q2]
     Y_dc = sentEmb(Sd, mode='dc', init='train',initial_checkpoint=initial_checkpoint)
-    Y_qr = sentEmb(Sq,mode='qr',init='train',initial_checkpoint=initial_checkpoint)
+    Y_qr1 = sentEmb(Sq1,mode='qr',init='train',initial_checkpoint=initial_checkpoint)
+    Y_qr2 = sentEmb(Sq2,mode='qr',init='train',initial_checkpoint=initial_checkpoint)
     Y_dc = norm(Y_dc)
-    Y_qr = norm(Y_qr)
+    Y_qr1 = norm(Y_qr1)
+    Y_qr2 = norm(Y_qr2)
     for i in range(len(D)):
-        D[i]['bert-sort'] = list(Y_dc[i])
-    for i in range(len(Q)):
-        Q[i]['bert-sort'] = list(Y_qr[i])
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121_bertsort_new.json','w') as f:
+        D[i]['sent2vec'] = list(Y_dc[i])
+    for i in range(len(Q1)):
+        Q1[i]['sent2vec'] = list(Y_qr1[i])
+    for i in range(len(Q2)):
+        Q2[i]['sent2vec'] = list(Y_qr2[i])
+
+    Y_qr1 = sentEmb(Sq1,mode='qr',init='bert',initial_checkpoint=None)
+    Y_qr2 = sentEmb(Sq2,mode='qr',init='bert',initial_checkpoint=None)
+    Y_qr1 = norm(Y_qr1)
+    Y_qr2 = norm(Y_qr2)
+    for i in range(len(Q1)):
+        Q1[i]['sent2vec_init'] = list(Y_qr1[i])
+    for i in range(len(Q2)):
+        Q2[i]['sent2vec_init'] = list(Y_qr2[i])
+    
+    with open('/search/odin/guobk/data_tmp/D0.json','w') as f:
         json.dump(D,f,ensure_ascii=False,indent=4)
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121_bertsort_new.json','w') as f:
-        json.dump(Q,f,ensure_ascii=False,indent=4)
+    with open('/search/odin/guobk/data_tmp/D1.json','w') as f:
+        json.dump(Q1,f,ensure_ascii=False,indent=4)
+    with open('/search/odin/guobk/data_tmp/D2.json','w') as f:
+        json.dump(Q2,f,ensure_ascii=False,indent=4)
 def demo_retrieval_pretrain():
     initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model1/model.ckpt-806510'
     with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121.json','r') as f:
