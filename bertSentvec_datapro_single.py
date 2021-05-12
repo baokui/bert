@@ -89,8 +89,6 @@ flags.DEFINE_float("learning_rate", 5e-5, "The initial learning rate for Adam.")
 flags.DEFINE_float("num_train_epochs", 3.0,
                    "Total number of training epochs to perform.")
 
-flags.DEFINE_float("number_examples", 0, "number_examples")
-
 flags.DEFINE_float(
     "warmup_proportion", 0.1,
     "Proportion of training to perform linear learning rate warmup for. "
@@ -394,21 +392,7 @@ class sortProcessor(DataProcessor):
     def get_train_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_txt(os.path.join(data_dir, "train.txt")), "train")
-
-    def get_dev_examples(self, data_dir, idx_label):
-        """See base class."""
-        return self._create_examples(
-            self._read_txt(os.path.join(data_dir, "dev.txt")), "dev", idx_label)
-
-    def get_test_examples(self, data_dir, idx_label):
-        """See base class."""
-        return self._create_examples(
-            self._read_txt(os.path.join(data_dir, "test.txt")), "test", idx_label)
-
-    def get_labels(self, D_label):
-        """See base class."""
-        return [[str(i) for i in range(len(D_label[k]))] for k in D_label]
+            self._read_txt(data_dir), "train")
 
     def _create_examples(self, lines, set_type):
         """Creates examples for the training and dev sets."""
@@ -430,7 +414,7 @@ class sortProcessor(DataProcessor):
         return examples
 
 
-def convert_single_example(ex_index, example, label_lists, max_seq_length,
+def convert_single_example(ex_index, example, label_list, max_seq_length,
                            tokenizer):
     """Converts a single `InputExample` into a single `InputFeatures`."""
 
@@ -439,12 +423,18 @@ def convert_single_example(ex_index, example, label_lists, max_seq_length,
             input_ids=[0] * max_seq_length,
             input_mask=[0] * max_seq_length,
             segment_ids=[0] * max_seq_length,
-            label_ids=[0],
+            label_id=0,
             is_real_example=False)
 
+    label_map = {}
+    for (i, label) in enumerate(label_list):
+        label_map[label] = i
+
+    # tokens_a = tokenizer.tokenize(example.text_a)
     tokens_a = tokenizer.tokenize(example.text_a)
     tokens_b = None
     if example.text_b:
+        # tokens_b = tokenizer.tokenize(example.text_b)
         tokens_b = tokenizer.tokenize(example.text_b)
 
     if tokens_b:
@@ -475,44 +465,55 @@ def convert_single_example(ex_index, example, label_lists, max_seq_length,
     # For classification tasks, the first vector (corresponding to [CLS]) is
     # used as the "sentence vector". Note that this only makes sense because
     # the entire model is fine-tuned.
-    tokensA = []
-    tokensB = []
-    segment_ids = [0 for _ in range(max_seq_length)]
-    tokensA.append("[CLS]")
-    tokensB.append("[CLS]")
+    tokens = []
+    segment_ids = []
+    tokens.append("[CLS]")
+    segment_ids.append(0)
     for token in tokens_a:
-        tokensA.append(token)
-    tokensA.append("[SEP]")
-    for token in tokens_b:
-        tokensB.append(token)
-    tokensB.append("[SEP]")
+        tokens.append(token)
+        segment_ids.append(0)
+    tokens.append("[SEP]")
+    segment_ids.append(0)
 
-    input_ids = [tokenizer.convert_tokens_to_ids(tokensA),tokenizer.convert_tokens_to_ids(tokensB)]
+    if tokens_b:
+        for token in tokens_b:
+            tokens.append(token)
+            segment_ids.append(1)
+        tokens.append("[SEP]")
+        segment_ids.append(1)
+
+    input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
     # The mask has 1 for real tokens and 0 for padding tokens. Only real
     # tokens are attended to.
-    input_maskA = [1] * len(input_ids[0])
-    input_maskB = [1] * len(input_ids[1])
+    input_mask = [1] * len(input_ids)
 
     # Zero-pad up to the sequence length.
-    while len(input_ids[0]) < max_seq_length:
-        input_ids[0].append(0)
-        input_maskA.append(0)
-    while len(input_ids[1]) < max_seq_length:
-        input_ids[1].append(0)
-        input_maskB.append(0)
+    while len(input_ids) < max_seq_length:
+        input_ids.append(0)
+        input_mask.append(0)
+        segment_ids.append(0)
 
-    assert len(input_ids[0]) == max_seq_length
-    assert len(input_ids[1]) == max_seq_length
-    assert len(input_maskA) == max_seq_length
-    assert len(input_maskB) == max_seq_length
+    assert len(input_ids) == max_seq_length
+    assert len(input_mask) == max_seq_length
     assert len(segment_ids) == max_seq_length
-    label_ids = int(example.label)
+
+    label_id = label_map[example.label]
+    if ex_index < 5:
+        tf.logging.info("*** Example ***")
+        tf.logging.info("guid: %s" % (example.guid))
+        tf.logging.info("tokens: %s" % " ".join(
+            [tokenization.printable_text(x) for x in tokens]))
+        tf.logging.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
+        tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
+        tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
+        tf.logging.info("label: %s (id = %d)" % (example.label, label_id))
+
     feature = InputFeatures(
         input_ids=input_ids,
-        input_mask=[input_maskA,input_maskB],
+        input_mask=input_mask,
         segment_ids=segment_ids,
-        label_ids=label_ids,
+        label_ids=label_id,
         is_real_example=True)
     return feature
 
@@ -530,10 +531,8 @@ def file_based_convert_examples_to_features(
             f = tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
             return f
         features = collections.OrderedDict()
-        features["input_idsA"] = create_int_feature(feature.input_ids[0])
-        features["input_idsB"] = create_int_feature(feature.input_ids[1])
-        features["input_maskA"] = create_int_feature(feature.input_mask[0])
-        features["input_maskB"] = create_int_feature(feature.input_mask[1])
+        features["input_ids"] = create_int_feature(feature.input_ids)
+        features["input_mask"] = create_int_feature(feature.input_mask)
         features["segment_ids"] = create_int_feature(feature.segment_ids)
         features["label_ids"] = create_int_feature([feature.label_ids])
         features["is_real_example"] = create_int_feature(
@@ -543,15 +542,13 @@ def file_based_convert_examples_to_features(
     writer.close()
 
 
-def file_based_input_fn_builder(input_files, seq_length, is_training,
+def file_based_input_fn_builder(input_file, seq_length, is_training,
                                 drop_remainder):
     """Creates an `input_fn` closure to be passed to TPUEstimator."""
 
     name_to_features = {
-        "input_idsA": tf.FixedLenFeature([seq_length], tf.int64),
-        "input_idsB": tf.FixedLenFeature([seq_length], tf.int64),
-        "input_maskA": tf.FixedLenFeature([seq_length], tf.int64),
-        "input_maskB": tf.FixedLenFeature([seq_length], tf.int64),
+        "input_ids": tf.FixedLenFeature([seq_length], tf.int64),
+        "input_mask": tf.FixedLenFeature([seq_length], tf.int64),
         "segment_ids": tf.FixedLenFeature([seq_length], tf.int64),
         "is_real_example": tf.FixedLenFeature([], tf.int64),
     }
@@ -571,7 +568,7 @@ def file_based_input_fn_builder(input_files, seq_length, is_training,
 
         return example
 
-    def input_fn0(params):
+    def input_fn(params):
         """The actual input function."""
         batch_size = params["batch_size"]
 
@@ -589,31 +586,7 @@ def file_based_input_fn_builder(input_files, seq_length, is_training,
                 drop_remainder=drop_remainder))
 
         return d
-    def input_fn(params):
-        """The actual input function."""
-        num_cpu_threads = 4
-        batch_size = params["batch_size"]
-        d = tf.data.Dataset.from_tensor_slices(tf.constant(input_files))
-        d = d.repeat()
-        d = d.shuffle(buffer_size=len(input_files))
-        # `cycle_length` is the number of parallel files that get read.
-        cycle_length = min(num_cpu_threads, len(input_files))
 
-        # `sloppy` mode means that the interleaving is not exact. This adds
-        # even more randomness to the training pipeline.
-        d = d.apply(
-            tf.contrib.data.parallel_interleave(
-                tf.data.TFRecordDataset,
-                sloppy=is_training,
-                cycle_length=cycle_length))
-        d = d.shuffle(buffer_size=100)
-        d = d.apply(
-            tf.contrib.data.map_and_batch(
-                lambda record: _decode_record(record, name_to_features),
-                batch_size=batch_size,
-                num_parallel_batches=num_cpu_threads,
-                drop_remainder=drop_remainder))
-        return d
     return input_fn
 
 
@@ -704,8 +677,8 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         for name in sorted(features.keys()):
             tf.logging.info("  name = %s, shape = %s" % (name, features[name].shape))
         print(features)
-        input_ids = [features["input_idsA"],features["input_idsB"]]
-        input_mask = [features["input_maskA"],features["input_maskB"]]
+        input_ids = features["input_ids"]
+        input_mask = features["input_mask"]
         segment_ids = features["segment_ids"]
         label_ids = features["label_ids"]
         is_real_example = None
@@ -745,12 +718,10 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         if mode == tf.estimator.ModeKeys.TRAIN:
             train_op = optimization.create_optimizer(
                 total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
-            logging_hook = tf.train.LoggingTensorHook({"loss": total_loss}, every_n_iter=10)
             output_spec = tf.contrib.tpu.TPUEstimatorSpec(
                 mode=mode,
                 loss=total_loss,
                 train_op=train_op,
-                training_hooks=[logging_hook],
                 scaffold_fn=scaffold_fn)
         return output_spec
     return model_fn
@@ -833,8 +804,7 @@ def netConfig():
     tvars = [v for v in tf.trainable_variables()]
     for t in tvars:
         print(t)
-def train(_):
-    tf.logging.set_verbosity(tf.logging.INFO)
+def main(_):
     # FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
     # FLAGS.task_name = "sort"
     # FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
@@ -856,403 +826,22 @@ def train(_):
             "was only trained up to sequence length %d" %
             (FLAGS.max_seq_length, bert_config.max_position_embeddings))
 
-    tf.gfile.MakeDirs(FLAGS.output_dir)
-
-
     #processor = processors[task_name]()
     processor = sortProcessor()
-
     tokenizer = tokenization.FullTokenizer(
         vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
-
-    tpu_cluster_resolver = None
-    if FLAGS.use_tpu and FLAGS.tpu_name:
-        tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
-            FLAGS.tpu_name, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
-
-    is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
-    run_config = tf.contrib.tpu.RunConfig(
-        keep_checkpoint_max=10,
-        cluster=tpu_cluster_resolver,
-        master=FLAGS.master,
-        model_dir=FLAGS.output_dir,
-        save_checkpoints_steps=FLAGS.save_checkpoints_steps,
-        tpu_config=tf.contrib.tpu.TPUConfig(
-            iterations_per_loop=FLAGS.iterations_per_loop,
-            num_shards=FLAGS.num_tpu_cores,
-            per_host_input_for_training=is_per_host))
-
     train_examples = None
     num_train_steps = None
     num_warmup_steps = None
     print('Data processing')
-    num_train_steps = int(FLAGS.number_examples / FLAGS.train_batch_size * FLAGS.num_train_epochs)
-    num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
-    # if FLAGS.do_train:
-    #     tf.logging.info("***** Data processing *****")
-    #     train_examples = processor.get_train_examples(FLAGS.data_dir)
-    #     num_train_steps = int(
-    #         len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
-    #     num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
-    #     tf.logging.info("num_train_samples is {} and num_train_steps is {}".format(len(train_examples),num_train_steps))
-    #     tf.logging.info("***** Data processing over *****")
-    print('Initial from ckpt...')
-    model_fn = model_fn_builder(
-        bert_config=bert_config,
-        init_checkpoint=FLAGS.init_checkpoint,
-        learning_rate=FLAGS.learning_rate,
-        num_train_steps=num_train_steps,
-        num_warmup_steps=num_warmup_steps,
-        use_tpu=FLAGS.use_tpu,
-        use_one_hot_embeddings=FLAGS.use_tpu)
-
-    # If TPU is not available, this will fall back to normal Estimator on CPU
-    # or GPU.
-    estimator = tf.contrib.tpu.TPUEstimator(
-        use_tpu=FLAGS.use_tpu,
-        model_fn=model_fn,
-        config=run_config,
-        train_batch_size=FLAGS.train_batch_size,
-        eval_batch_size=FLAGS.eval_batch_size,
-        predict_batch_size=FLAGS.predict_batch_size)
-
-    if FLAGS.do_train:
-        # train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
-        # file_based_convert_examples_to_features(
-        #     train_examples, label_lists,FLAGS.max_seq_length, tokenizer, train_file)
-        # tf.logging.info("***** Running training *****")
-        # tf.logging.info("  Num examples = %d", len(train_examples))
-        # tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
-        # tf.logging.info("  Num steps = %d", num_train_steps)
-        fs0 = os.listdir(FLAGS.data_dir)
-        train_files = [os.path.join(FLAGS.data_dir, ff) for ff in fs0]
-        print("train_files:",train_files)
-        train_input_fn = file_based_input_fn_builder(
-            input_files=train_files,
-            seq_length=FLAGS.max_seq_length,
-            is_training=True,
-            drop_remainder=True
-        )
-        estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
-def validation(prob,label,thr = 0.5):
-    def calAUC(prob, labels):
-        f = list(zip(prob, labels))
-        rank = [values2 for values1, values2 in sorted(f, key=lambda x: x[0])]
-        rankList = [i + 1 for i in range(len(rank)) if rank[i] == 1]
-        posNum = 0.0
-        negNum = 0.0
-        for i in range(len(labels)):
-            if (labels[i] == 1):
-                posNum += 1
-            else:
-                negNum += 1
-        auc = (sum(rankList) - (posNum * (posNum + 1)) / 2) / (posNum * negNum)
-        return auc
-    auc = calAUC(prob,label)
-    acc = sum([int(prob[i]>=thr)==label[i] for i in range(len(label))])/len(prob)
-    return auc,acc
-def test0(init='bert',batch_size=32):
-    FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
-    with open(os.path.join(FLAGS.data_dir, 'test.txt'), 'r') as f:
-        S = f.read().strip().split('\n')
-    S = [s.split('\t') for s in S]
-    tf.reset_default_graph()
-    FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
-    FLAGS.task_name = "sort"
-    FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
-    FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
-    FLAGS.init_checkpoint = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_model.ckpt"
-    FLAGS.output_dir = "model/" + FLAGS.task_name
-    label_lists = ['0', '1']
-    tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,FLAGS.init_checkpoint)
-    tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
-    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
-    is_training = False
-    max_seq_length = FLAGS.max_seq_length
-    input_ids = [tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_idsA'),tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_idsB')]
-    input_mask = [tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_maskA'),tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_maskB')]
-    segment_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='segment_ids')
-    labels = tf.placeholder(tf.int32, shape=[None, ], name='labels')
-    loss,score,per_example_loss,feature_qr,feature_dc,feature0,feature1 = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,labels, use_one_hot_embeddings=False)
-    sess = tf.Session()
-    saver = tf.train.Saver()
-    model_file = tf.train.latest_checkpoint(FLAGS.output_dir)
-    if model_file and init!='bert':
-        print('load model from checkpoint')
-        sess.run(tf.global_variables_initializer())
-        saver.restore(sess, model_file)
-    else:
-        print('load model from bert init')
-        tvars = tf.trainable_variables()
-        (assignment_map, initialized_variable_names, vars_others
-         ) = get_assignment_map_from_checkpoint(tvars, FLAGS.init_checkpoint)
-        tf.train.init_from_checkpoint(FLAGS.init_checkpoint, assignment_map)
-        sess.run(tf.global_variables_initializer())
-    Loss = []
-    Label = []
-    Score = []
-    i0 = []
-    i1 = []
-    seg = []
-    m0 = []
-    m1 = []
-    L = []
-    for i in range(len(S)):
-        text_a = S[i][0]
-        text_b = S[i][1]
-        label = int(S[i][2])
-        example = InputExample(guid='guid', text_a=text_a, text_b=text_b, label='0')
-        feature = convert_single_example(10, example, label_lists, max_seq_length, tokenizer)
-        i0.append(feature.input_ids[0])
-        i1.append(feature.input_ids[1])
-        seg.append(feature.segment_ids)
-        m0.append(feature.input_mask[0])
-        m1.append(feature.input_mask[1])
-        L.append(label)
-        if len(i0)>=batch_size:
-            feed_dict = {input_ids[0]: i0,
-                         input_ids[1]: i1,
-                         segment_ids: seg,
-                         input_mask[0]: m0,
-                         input_mask[1]: m1,
-                         labels:L}
-            loss_, score_ = sess.run([loss,score], feed_dict=feed_dict)
-            if init=='bert':
-                feature0_,feature1_ = sess.run([feature0,feature1],feed_dict=feed_dict)
-                feature0_ = norm(feature0_)
-                feature1_ = norm(feature1_)
-                score_ = [feature0_[i].dot(feature1_[i]) for i in range(len(feature1_))]
-            Loss.append(loss_)
-            Score.extend(score_)
-            Label.extend(L)
-            i0 = []
-            i1 = []
-            seg = []
-            m0 = []
-            m1 = []
-            L = []
-        if i % 100 == 0 and i>0:
-            auc,acc = validation(Score,Label)
-            print(i, len(S), np.mean(Loss),auc,acc)
-def sentEmb(D,mode='qr',init='bert',batch_size=32,initial_checkpoint=None):
-    tf.reset_default_graph()
-    FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
-    FLAGS.task_name = "sort"
-    FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
-    FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
-    FLAGS.init_checkpoint = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_model.ckpt"
-    FLAGS.output_dir = "model/" + FLAGS.task_name
-    label_lists = ['0', '1']
-    tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,FLAGS.init_checkpoint)
-    tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
-    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
-    is_training = False
-    max_seq_length = FLAGS.max_seq_length
-    input_ids = [tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_idsA'),tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_idsB')]
-    input_mask = [tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_maskA'),tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_maskB')]
-    segment_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='segment_ids')
-    labels = tf.placeholder(tf.int32, shape=[None, ], name='labels')
-    loss,score,per_example_loss,feature_qr,feature_dc,feature0,feature1 = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,labels, use_one_hot_embeddings=False)
-    sess = tf.Session()
-    saver = tf.train.Saver()
-    if initial_checkpoint:
-        model_file = initial_checkpoint
-    else:
-        model_file = tf.train.latest_checkpoint(FLAGS.output_dir)
-    if model_file and init!='bert':
-        print('load model from checkpoint')
-        sess.run(tf.global_variables_initializer())
-        saver.restore(sess, model_file)
-    else:
-        print('load model from bert init')
-        tvars = tf.trainable_variables()
-        (assignment_map, initialized_variable_names, vars_others
-         ) = get_assignment_map_from_checkpoint(tvars, FLAGS.init_checkpoint)
-        tf.train.init_from_checkpoint(FLAGS.init_checkpoint, assignment_map)
-        sess.run(tf.global_variables_initializer())
-    f0 = feature0 if init=='bert' else feature_qr
-    f1 = feature1 if init=='bert' else feature_dc
-    sent2vec = f0 if mode=='qr' else f1
-    Y_dc = []
-    i0 = []
-    i1 = []
-    seg = []
-    m0 = []
-    m1 = []
-    for i in range(len(D)):
-        if mode=='qr':
-            text_b = '我'
-            text_a = D[i]
-        else:
-            text_a = '我'
-            text_b = D[i]
-        example = InputExample(guid='guid', text_a=text_a, text_b=text_b, label='0')
-        feature = convert_single_example(10, example, label_lists, max_seq_length, tokenizer)
-        i0.append(feature.input_ids[0])
-        i1.append(feature.input_ids[1])
-        seg.append(feature.segment_ids)
-        m0.append(feature.input_mask[0])
-        m1.append(feature.input_mask[1])
-        if len(i0)>=batch_size:
-            feed_dict = {input_ids[0]: i0,
-                         input_ids[1]: i1,
-                         segment_ids: seg,
-                         input_mask[0]: m0,
-                         input_mask[1]: m1}
-            y_dc = sess.run(sent2vec, feed_dict=feed_dict)
-            Y_dc.extend(y_dc)
-            i0 = []
-            i1 = []
-            seg = []
-            m0 = []
-            m1 = []
-        if i % 100 == 0:
-            print(i, len(D))
-    if len(i0)>0:
-        feed_dict = {input_ids[0]: i0,
-                         input_ids[1]: i1,
-                         segment_ids: seg,
-                         input_mask[0]: m0,
-                         input_mask[1]: m1}
-        y_dc = sess.run(sent2vec, feed_dict=feed_dict)
-        Y_dc.extend(y_dc)
-    return Y_dc
-from sklearn import preprocessing
-def norm(V1):
-    V1 = preprocessing.scale(V1, axis=-1)
-    V1 = V1 / np.sqrt(len(V1[0]))
-    return V1
-def test():
-    FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
-    with open(os.path.join(FLAGS.data_dir,'test.txt'),'r') as f:
-        S = f.read().strip().split('\n')
-    Q = [s.split('\t')[0] for s in S]
-    D = [s.split('\t')[1] for s in S]
-    Q = list(set(Q))[:1000]
-    D = list(set(D))
-    Y_qr0 = sentEmb(Q[:1000],mode='qr',init='bert')
-    Y_qr1 = sentEmb(Q[:1000], mode='qr', init='train')
-    Y_dc0 = sentEmb(D, mode='dc', init='bert')
-    Y_dc1 = sentEmb(D, mode='dc', init='train')
-    # np.save('model/sort/Y_qr0.npy',Y_qr0)
-    # np.save('model/sort/Y_qr.npy', Y_qr)
-    # np.save('model/sort/Y_dc0.npy', Y_dc0)
-    # np.save('model/sort/Y_dc.npy', Y_dc)
-
-    vq = norm(Y_qr0[:1000])
-    vd = norm(Y_dc0)
-    s = np.dot(vq,np.transpose(vd))
-    idx0 = np.argsort(-s,axis=-1)
-    vq = norm(Y_qr1[:1000])
-    vd = norm(Y_dc1)
-    s = np.dot(vq, np.transpose(vd))
-    idx = np.argsort(-s, axis=-1)
-    R = []
-    for i in range(1000):
-        r0 = [D[idx0[i][j]] for j in range(10)]
-        r1 = [D[idx[i][j]] for j in range(10)]
-        d = {'input':Q[i],'result0':r0,'result':r1}
-        R.append(d)
-    for r in R:
-        print(r['input'])
-        print('result0:\n' + '\n'.join(r['result0']))
-        print('result1:\n' + '\n'.join(r['result']))
-        print('-----------------')
-    with open('model/sort/test_predict.json','w') as f:
-        json.dump(R,f,ensure_ascii=False,indent=4)
-def demo_retrieval():
-    initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model3/model.ckpt-601000'
-    with open('/search/odin/guobk/data_tmp/D0.json','r') as f:
-        D = json.load(f)
-    with open('/search/odin/guobk/data_tmp/D1.json','r') as f:
-        Q1 = json.load(f)
-    with open('/search/odin/guobk/data_tmp/D2.json','r') as f:
-        Q2 = json.load(f)
-    Sd = [d['content'] for d in D]
-    Sq1 = [d['content'] for d in Q1]
-    Sq2 = [d['content'] for d in Q2]
-    Y_dc = sentEmb(Sd, mode='dc', init='train',initial_checkpoint=initial_checkpoint)
-    Y_qr1 = sentEmb(Sq1,mode='qr',init='train',initial_checkpoint=initial_checkpoint)
-    Y_qr2 = sentEmb(Sq2,mode='qr',init='train',initial_checkpoint=initial_checkpoint)
-    Y_dc = norm(Y_dc)
-    Y_qr1 = norm(Y_qr1)
-    Y_qr2 = norm(Y_qr2)
-    for i in range(len(D)):
-        D[i]['sent2vec'] = list(Y_dc[i])
-    for i in range(len(Q1)):
-        Q1[i]['sent2vec'] = list(Y_qr1[i])
-    for i in range(len(Q2)):
-        Q2[i]['sent2vec'] = list(Y_qr2[i])
-
-    Y_qr1 = sentEmb(Sq1,mode='qr',init='bert',initial_checkpoint=None)
-    Y_qr2 = sentEmb(Sq2,mode='qr',init='bert',initial_checkpoint=None)
-    Y_qr1 = norm(Y_qr1)
-    Y_qr2 = norm(Y_qr2)
-    for i in range(len(Q1)):
-        Q1[i]['sent2vec_init'] = list(Y_qr1[i])
-    for i in range(len(Q2)):
-        Q2[i]['sent2vec_init'] = list(Y_qr2[i])
-    
-    with open('/search/odin/guobk/data_tmp/D0.json','w') as f:
-        json.dump(D,f,ensure_ascii=False,indent=4)
-    with open('/search/odin/guobk/data_tmp/D1.json','w') as f:
-        json.dump(Q1,f,ensure_ascii=False,indent=4)
-    with open('/search/odin/guobk/data_tmp/D2.json','w') as f:
-        json.dump(Q2,f,ensure_ascii=False,indent=4)
-def demo_retrieval_finetune():
-    initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model3_finetune/model.ckpt-34000'
-    with open('/search/odin/guobk/data_tmp/D0.json','r') as f:
-        D = json.load(f)
-    with open('/search/odin/guobk/data_tmp/Q_test.json','r') as f:
-        Q1 = json.load(f)
-    Sd = [d['content'] for d in D]
-    Sq1 = [d['content'] for d in Q1]
-    Y_dc = sentEmb(Sd, mode='dc', init='train',initial_checkpoint=initial_checkpoint)
-    Y_qr1 = sentEmb(Sq1,mode='qr',init='train',initial_checkpoint=initial_checkpoint)
-    Y_dc = norm(Y_dc)
-    Y_qr1 = norm(Y_qr1)
-    for i in range(len(D)):
-        D[i]['sent2vec'] = list(Y_dc[i])
-    for i in range(len(Q1)):
-        Q1[i]['sent2vec'] = list(Y_qr1[i])
-    with open('/search/odin/guobk/data_tmp/D0_finetune.json','w') as f:
-        json.dump(D,f,ensure_ascii=False,indent=4)
-    with open('/search/odin/guobk/data_tmp/Q_test.json','w') as f:
-        json.dump(Q1,f,ensure_ascii=False,indent=4)
-def demo_retrieval_pretrain():
-    initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model1/model.ckpt-806510'
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121.json','r') as f:
-        D = json.load(f)
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121.json','r') as f:
-        Q = json.load(f)
-    Sd = [d['content'] for d in D]
-    Sq = [d['content'] for d in Q]
-    Y_dc = sentEmb(Sd, mode='dc', init='bert',initial_checkpoint=initial_checkpoint)
-    Y_qr = sentEmb(Sq,mode='qr',init='bert',initial_checkpoint=initial_checkpoint)
-    Y_dc = norm(Y_dc)
-    Y_qr = norm(Y_qr)
-    for i in range(len(D)):
-        D[i]['bert-pre'] = list(Y_dc[i])
-    for i in range(len(Q)):
-        Q[i]['bert-pre'] = list(Y_qr[i])
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121_bertpre_new.json','w') as f:
-        json.dump(D,f,ensure_ascii=False,indent=4)
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121_bertpre_new.json','w') as f:
-        json.dump(Q,f,ensure_ascii=False,indent=4)
-def demo_test():
-    initial_checkpoint = 'model/sort/model.ckpt-58000'
-    with open('/search/odin/guobk/vpa/vpa-godText-log/allScene_new/data/tmp.txt','r') as f:
-        S = f.read().strip().split('\n')
-    Y_qr = sentEmb(S[:1000], mode='qr', init='bert', initial_checkpoint=initial_checkpoint)
-    Y_qr = norm(Y_qr)
-    Q = []
-    for i in range(len(Y_qr)):
-        d = {'id':i}
-        d['bert-pre'] = list(Y_qr[i])
-        d['content'] = S[i]
-        Q.append(d)
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries023_bertpre.json', 'w') as f:
-        json.dump(Q, f, ensure_ascii=False, indent=4)
+    tf.logging.info("***** Data processing *****")
+    train_examples = processor.get_train_examples(FLAGS.data_dir)
+    num_train_steps = int(
+        len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
+    tf.logging.info("num_train_samples is {} and num_train_steps is {}".format(len(train_examples),num_train_steps))
+    tf.logging.info("***** Data processing over *****")
+    file_based_convert_examples_to_features(
+        train_examples, label_lists,FLAGS.max_seq_length, tokenizer, FLAGS.output_dir)
 if __name__ == "__main__":
     # flags.mark_flag_as_required("data_dir")
     # flags.mark_flag_as_required("task_name")
@@ -1260,7 +849,4 @@ if __name__ == "__main__":
     # flags.mark_flag_as_required("bert_config_file")
     # flags.mark_flag_as_required("output_dir")
     #tf.app.run()
-    if FLAGS.do_train:
-        train(0)
-    else:
-        test()
+    main(0)

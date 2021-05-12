@@ -530,10 +530,8 @@ def file_based_convert_examples_to_features(
             f = tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
             return f
         features = collections.OrderedDict()
-        features["input_idsA"] = create_int_feature(feature.input_ids[0])
-        features["input_idsB"] = create_int_feature(feature.input_ids[1])
-        features["input_maskA"] = create_int_feature(feature.input_mask[0])
-        features["input_maskB"] = create_int_feature(feature.input_mask[1])
+        features["input_ids"] = create_int_feature(feature.input_ids)
+        features["input_mask"] = create_int_feature(feature.input_mask)
         features["segment_ids"] = create_int_feature(feature.segment_ids)
         features["label_ids"] = create_int_feature([feature.label_ids])
         features["is_real_example"] = create_int_feature(
@@ -548,10 +546,8 @@ def file_based_input_fn_builder(input_files, seq_length, is_training,
     """Creates an `input_fn` closure to be passed to TPUEstimator."""
 
     name_to_features = {
-        "input_idsA": tf.FixedLenFeature([seq_length], tf.int64),
-        "input_idsB": tf.FixedLenFeature([seq_length], tf.int64),
-        "input_maskA": tf.FixedLenFeature([seq_length], tf.int64),
-        "input_maskB": tf.FixedLenFeature([seq_length], tf.int64),
+        "input_ids": tf.FixedLenFeature([seq_length], tf.int64),
+        "input_mask": tf.FixedLenFeature([seq_length], tf.int64),
         "segment_ids": tf.FixedLenFeature([seq_length], tf.int64),
         "is_real_example": tf.FixedLenFeature([], tf.int64),
     }
@@ -641,29 +637,48 @@ def cosine(q,a):
     return score
 
 def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
-                 labels, use_one_hot_embeddings):
+                 labels, num_labels, use_one_hot_embeddings):
     """Creates a classification model."""
-    output_layer = []
-    for k in range(len(input_ids)):
-        with tf.variable_scope('lm', reuse=k > 0):
-            model = modeling.BertModel(
-                config=bert_config,
-                is_training=is_training,
-                input_ids=input_ids[k],
-                input_mask=input_mask[k],
-                token_type_ids=segment_ids,
-                use_one_hot_embeddings=use_one_hot_embeddings)
-            output_layer.append(model.get_pooled_output())
-    feature0 = output_layer[0]
-    feature1 = output_layer[1]
-    feature_qr = tf.layers.dense(inputs=output_layer[0], units = 256, activation = tf.nn.relu)
-    feature_dc = tf.layers.dense(inputs=output_layer[1], units = 256, activation = tf.nn.relu)
-    score = cosine(feature_qr,feature_dc)
-    c = tf.square(score - tf.cast(labels, dtype=tf.float32))
-    per_example_loss = tf.reduce_mean(c,axis=-1)
-    loss = tf.reduce_mean(per_example_loss)
-    return (loss,score,per_example_loss,feature_qr,feature_dc,feature0,feature1)
+    model = modeling.BertModel(
+        config=bert_config,
+        is_training=is_training,
+        input_ids=input_ids,
+        input_mask=input_mask,
+        token_type_ids=segment_ids,
+        use_one_hot_embeddings=use_one_hot_embeddings)
 
+    # In the demo, we are doing a simple classification task on the entire
+    # segment.
+    #
+    # If you want to use the token-level output, use model.get_sequence_output()
+    # instead.
+    output_layer = model.get_pooled_output()
+
+    hidden_size = output_layer.shape[-1].value
+
+    output_weights = tf.get_variable(
+        "output_weights", [num_labels, hidden_size],
+        initializer=tf.truncated_normal_initializer(stddev=0.02))
+
+    output_bias = tf.get_variable(
+        "output_bias", [num_labels], initializer=tf.zeros_initializer())
+
+    with tf.variable_scope("loss"):
+        if is_training:
+            # I.e., 0.1 dropout
+            output_layer = tf.nn.dropout(output_layer, keep_prob=0.9)
+
+    logits = tf.matmul(output_layer, output_weights, transpose_b=True)
+    logits = tf.nn.bias_add(logits, output_bias)
+    probabilities = tf.nn.softmax(logits, axis=-1)
+    log_probs = tf.nn.log_softmax(logits, axis=-1)
+    print("TEST-labels",labels)
+    one_hot_labels = tf.one_hot(labels, depth=num_labels, dtype=tf.float32)
+
+    per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
+    loss = tf.reduce_mean(per_example_loss)
+
+    return (loss, per_example_loss, logits, probabilities)
 def get_assignment_map_from_checkpoint(tvars, init_checkpoint):
   import re,collections
   """Compute the union of the current variables and checkpoint variables."""
@@ -704,8 +719,8 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         for name in sorted(features.keys()):
             tf.logging.info("  name = %s, shape = %s" % (name, features[name].shape))
         print(features)
-        input_ids = [features["input_idsA"],features["input_idsB"]]
-        input_mask = [features["input_maskA"],features["input_maskB"]]
+        input_ids = features["input_ids"]
+        input_mask = features["input_mask"]
         segment_ids = features["segment_ids"]
         label_ids = features["label_ids"]
         is_real_example = None
@@ -714,7 +729,8 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         else:
             is_real_example = tf.ones(tf.shape(label_ids), dtype=tf.float32)
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
-        (loss,score,per_example_loss,feature_qr,feature_dc,feature0,feature1) = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,label_ids, use_one_hot_embeddings)
+        (loss, per_example_loss, logits, probabilities) = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
+                 label_ids, num_labels=2, use_one_hot_embeddings=False)
         total_loss = loss
         tvars = tf.trainable_variables()
         initialized_variable_names = {}
@@ -969,11 +985,12 @@ def test0(init='bert',batch_size=32):
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
     is_training = False
     max_seq_length = FLAGS.max_seq_length
-    input_ids = [tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_idsA'),tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_idsB')]
-    input_mask = [tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_maskA'),tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_maskB')]
+    input_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_ids')
+    input_mask = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_mask')
     segment_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='segment_ids')
     labels = tf.placeholder(tf.int32, shape=[None, ], name='labels')
-    loss,score,per_example_loss,feature_qr,feature_dc,feature0,feature1 = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,labels, use_one_hot_embeddings=False)
+    loss,score,per_example_loss,feature_qr,feature_dc,feature0,feature1 = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
+                 labels, num_labels, use_one_hot_embeddings=False)
     sess = tf.Session()
     saver = tf.train.Saver()
     model_file = tf.train.latest_checkpoint(FLAGS.output_dir)
