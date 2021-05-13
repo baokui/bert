@@ -430,7 +430,7 @@ class sortProcessor(DataProcessor):
         return examples
 
 
-def convert_single_example(ex_index, example, label_lists, max_seq_length,
+def convert_single_example(ex_index, example, label_list, max_seq_length,
                            tokenizer):
     """Converts a single `InputExample` into a single `InputFeatures`."""
 
@@ -439,12 +439,18 @@ def convert_single_example(ex_index, example, label_lists, max_seq_length,
             input_ids=[0] * max_seq_length,
             input_mask=[0] * max_seq_length,
             segment_ids=[0] * max_seq_length,
-            label_ids=[0],
+            label_id=0,
             is_real_example=False)
 
+    label_map = {}
+    for (i, label) in enumerate(label_list):
+        label_map[label] = i
+
+    # tokens_a = tokenizer.tokenize(example.text_a)
     tokens_a = tokenizer.tokenize(example.text_a)
     tokens_b = None
     if example.text_b:
+        # tokens_b = tokenizer.tokenize(example.text_b)
         tokens_b = tokenizer.tokenize(example.text_b)
 
     if tokens_b:
@@ -475,44 +481,55 @@ def convert_single_example(ex_index, example, label_lists, max_seq_length,
     # For classification tasks, the first vector (corresponding to [CLS]) is
     # used as the "sentence vector". Note that this only makes sense because
     # the entire model is fine-tuned.
-    tokensA = []
-    tokensB = []
-    segment_ids = [0 for _ in range(max_seq_length)]
-    tokensA.append("[CLS]")
-    tokensB.append("[CLS]")
+    tokens = []
+    segment_ids = []
+    tokens.append("[CLS]")
+    segment_ids.append(0)
     for token in tokens_a:
-        tokensA.append(token)
-    tokensA.append("[SEP]")
-    for token in tokens_b:
-        tokensB.append(token)
-    tokensB.append("[SEP]")
+        tokens.append(token)
+        segment_ids.append(0)
+    tokens.append("[SEP]")
+    segment_ids.append(0)
 
-    input_ids = [tokenizer.convert_tokens_to_ids(tokensA),tokenizer.convert_tokens_to_ids(tokensB)]
+    if tokens_b:
+        for token in tokens_b:
+            tokens.append(token)
+            segment_ids.append(1)
+        tokens.append("[SEP]")
+        segment_ids.append(1)
+
+    input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
     # The mask has 1 for real tokens and 0 for padding tokens. Only real
     # tokens are attended to.
-    input_maskA = [1] * len(input_ids[0])
-    input_maskB = [1] * len(input_ids[1])
+    input_mask = [1] * len(input_ids)
 
     # Zero-pad up to the sequence length.
-    while len(input_ids[0]) < max_seq_length:
-        input_ids[0].append(0)
-        input_maskA.append(0)
-    while len(input_ids[1]) < max_seq_length:
-        input_ids[1].append(0)
-        input_maskB.append(0)
+    while len(input_ids) < max_seq_length:
+        input_ids.append(0)
+        input_mask.append(0)
+        segment_ids.append(0)
 
-    assert len(input_ids[0]) == max_seq_length
-    assert len(input_ids[1]) == max_seq_length
-    assert len(input_maskA) == max_seq_length
-    assert len(input_maskB) == max_seq_length
+    assert len(input_ids) == max_seq_length
+    assert len(input_mask) == max_seq_length
     assert len(segment_ids) == max_seq_length
-    label_ids = int(example.label)
+
+    label_id = label_map[example.label]
+    if ex_index < 5:
+        tf.logging.info("*** Example ***")
+        tf.logging.info("guid: %s" % (example.guid))
+        tf.logging.info("tokens: %s" % " ".join(
+            [tokenization.printable_text(x) for x in tokens]))
+        tf.logging.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
+        tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
+        tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
+        tf.logging.info("label: %s (id = %d)" % (example.label, label_id))
+
     feature = InputFeatures(
         input_ids=input_ids,
-        input_mask=[input_maskA,input_maskB],
+        input_mask=input_mask,
         segment_ids=segment_ids,
-        label_ids=label_ids,
+        label_ids=label_id,
         is_real_example=True)
     return feature
 
@@ -968,29 +985,22 @@ def validation(prob,label,thr = 0.5):
     acc = sum([int(prob[i]>=thr)==label[i] for i in range(len(label))])/len(prob)
     return auc,acc
 def test0(init='bert',batch_size=32):
-    FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
-    with open(os.path.join(FLAGS.data_dir, 'test.txt'), 'r') as f:
-        S = f.read().strip().split('\n')
-    S = [s.split('\t') for s in S]
     tf.reset_default_graph()
-    FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
-    FLAGS.task_name = "sort"
     FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
     FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
-    FLAGS.init_checkpoint = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_model.ckpt"
-    FLAGS.output_dir = "model/" + FLAGS.task_name
+    FLAGS.output_dir = "/search/odin/guobk/data/bert_semantic/model4"
     label_lists = ['0', '1']
     tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,FLAGS.init_checkpoint)
     tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
     is_training = False
-    max_seq_length = FLAGS.max_seq_length
+    max_seq_length = 128
     input_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_ids')
     input_mask = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_mask')
     segment_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='segment_ids')
     labels = tf.placeholder(tf.int32, shape=[None, ], name='labels')
-    loss,score,per_example_loss,feature_qr,feature_dc,feature0,feature1 = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
-                 labels, num_labels, use_one_hot_embeddings=False)
+    loss, per_example_loss, logits, probabilities = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
+                 labels, num_labels=2, use_one_hot_embeddings=False)
     sess = tf.Session()
     saver = tf.train.Saver()
     model_file = tf.train.latest_checkpoint(FLAGS.output_dir)
@@ -1005,6 +1015,25 @@ def test0(init='bert',batch_size=32):
          ) = get_assignment_map_from_checkpoint(tvars, FLAGS.init_checkpoint)
         tf.train.init_from_checkpoint(FLAGS.init_checkpoint, assignment_map)
         sess.run(tf.global_variables_initializer())
+    import json
+    with open('/search/odin/guobk/data_tmp/D2.json','r') as f:
+        D2 = json.load(f)
+    for i in range(len(D2)):
+        inputs = []
+        segments = []
+        masks = []
+        Labels = []
+        text_a = D2[i]['content']
+        for j in range(len(D2[i]['raw_recall'])):
+            text_b = D2[i]['raw_recall'][j]
+            example = InputExample(guid='guid', text_a=text_a, text_b=text_b, label='0')
+            feature = convert_single_example(10, example, label_lists, max_seq_length, tokenizer)
+            inputs.append(feature.input_ids)
+            segments.append(feature.segment_ids)
+            masks.append(feature.input_mask)
+            Labels.append(0)
+        feed_dict = {input_ids: inputs,segment_ids: segments,input_mask: masks,labels:Labels}
+        p = sess.run(probabilities,feed_dict = feed_dict)
     Loss = []
     Label = []
     Score = []
