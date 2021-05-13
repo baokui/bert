@@ -744,11 +744,21 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         output_spec = None
         update_var_list = []  #该list中的变量参与参数更新
         tvars = tf.trainable_variables()
+        num_params = 0
+        for variable in tvars:
+            shape = variable.get_shape()
+            num_params += reduce(mul, [dim.value for dim in shape], 1)
         print('TEST-trainable vars before frozen:',tvars)
+        print('TEST-trainable number params of vars before frozen:',num_params)
         for tvar in tvars:
             if "bert" not in tvar.name or 'layer_11' in tvar.name:
                 update_var_list.append(tvar)
         print('TEST-trainable vars after frozen:',update_var_list)
+        num_params = 0
+        for variable in update_var_list:
+            shape = variable.get_shape()
+            num_params += reduce(mul, [dim.value for dim in shape], 1)
+        print('TEST-trainable number params of vars after frozen:',num_params)    
         #train_op = tf.train.AdamOptimizer(FLAGS.lr).minimize(loss, global_step=global_step, var_list=update_var_list)
         if mode == tf.estimator.ModeKeys.TRAIN:
             train_op = optimization.create_optimizer(
