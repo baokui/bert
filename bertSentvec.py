@@ -656,8 +656,8 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
             output_layer.append(model.get_pooled_output())
     feature0 = output_layer[0]
     feature1 = output_layer[1]
-    feature_qr = tf.layers.dense(inputs=output_layer[0], units = 256, activation = tf.nn.relu)
-    feature_dc = tf.layers.dense(inputs=output_layer[1], units = 256, activation = tf.nn.relu)
+    feature_qr = tf.layers.dense(inputs=output_layer[0], units = 256, activation = tf.nn.tanh)
+    feature_dc = tf.layers.dense(inputs=output_layer[1], units = 256, activation = tf.nn.tanh)
     score = cosine(feature_qr,feature_dc)
     c = tf.square(score - tf.cast(labels, dtype=tf.float32))
     per_example_loss = tf.reduce_mean(c,axis=-1)
@@ -742,9 +742,17 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
             tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
                             init_string)
         output_spec = None
+        update_var_list = []  #该list中的变量参与参数更新
+        tvars = tf.trainable_variables()
+        print('TEST-trainable vars before frozen:',tvars)
+        for tvar in tvars:
+            if "bert" not in tvar.name or 'layer_11' in tvar.name:
+                update_var_list.append(tvar)
+        print('TEST-trainable vars after frozen:',update_var_list)
+        #train_op = tf.train.AdamOptimizer(FLAGS.lr).minimize(loss, global_step=global_step, var_list=update_var_list)
         if mode == tf.estimator.ModeKeys.TRAIN:
             train_op = optimization.create_optimizer(
-                total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
+                total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu,tvars0 = update_var_list)
             logging_hook = tf.train.LoggingTensorHook({"loss": total_loss}, every_n_iter=10)
             output_spec = tf.contrib.tpu.TPUEstimatorSpec(
                 mode=mode,
