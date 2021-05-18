@@ -46,7 +46,8 @@ flags.DEFINE_string(
     "tfrecord train_file "
     "")
     
-flags.DEFINE_integer("nb_train_examples",None,"","")
+flags.DEFINE_integer(
+    "nb_train_examples", 128,"")
 
 flags.DEFINE_string("task_name", None, "The name of the task to train.")
 
