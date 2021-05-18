@@ -696,6 +696,44 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
     loss = tf.reduce_mean(per_example_loss)
 
     return (loss, per_example_loss, logits, probabilities)
+def create_model_test(bert_config, is_training, input_ids, input_mask, segment_ids,
+                 labels, num_labels, use_one_hot_embeddings):
+    """Creates a classification model."""
+    model = modeling.BertModel(
+        config=bert_config,
+        is_training=is_training,
+        input_ids=input_ids,
+        input_mask=input_mask,
+        token_type_ids=segment_ids,
+        use_one_hot_embeddings=use_one_hot_embeddings)
+    # In the demo, we are doing a simple classification task on the entire
+    # segment.
+    #
+    # If you want to use the token-level output, use model.get_sequence_output()
+    # instead.
+    output_layer = model.get_pooled_output()
+    hidden_size = output_layer.shape[-1].value
+    output_weights = tf.get_variable(
+        "output_weights", [num_labels, hidden_size],
+        initializer=tf.truncated_normal_initializer(stddev=0.02))
+    output_bias = tf.get_variable(
+        "output_bias", [num_labels], initializer=tf.zeros_initializer())
+    with tf.variable_scope("loss"):
+        if is_training:
+            # I.e., 0.1 dropout
+            output_layer = tf.nn.dropout(output_layer, keep_prob=0.9)
+    logits = tf.matmul(output_layer, output_weights, transpose_b=True)
+    logits = tf.nn.bias_add(logits, output_bias)
+    probabilities = tf.nn.softmax(logits, axis=-1)
+    log_probs = tf.nn.log_softmax(logits, axis=-1)
+    print("TEST-labels",labels)
+    one_hot_labels = tf.one_hot(labels, depth=num_labels, dtype=tf.float32)
+    per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
+    loss = tf.reduce_mean(per_example_loss)
+    sequence_output = model.get_sequence_output()
+    embedding = model.get_embedding_table()
+    all_encoder_layers = model.get_all_encoder_layers()
+    return probabilities,logits,output_layer,output_weights,output_bias,sequence_output,embedding,all_encoder_layers
 def get_assignment_map_from_checkpoint(tvars, init_checkpoint):
   import re,collections
   """Compute the union of the current variables and checkpoint variables."""
@@ -984,12 +1022,10 @@ def validation(prob,label,thr = 0.5):
     auc = calAUC(prob,label)
     acc = sum([int(prob[i]>=thr)==label[i] for i in range(len(label))])/len(prob)
     return auc,acc
-def test0(init='bert',batch_size=32):
-    tf.reset_default_graph()
+def sentEmb():
     FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
     FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
     FLAGS.output_dir = "/search/odin/guobk/data/bert_semantic/model4"
-    label_lists = ['0', '1']
     tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,FLAGS.init_checkpoint)
     tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
@@ -1001,10 +1037,12 @@ def test0(init='bert',batch_size=32):
     labels = tf.placeholder(tf.int32, shape=[None, ], name='labels')
     loss, per_example_loss, logits, probabilities = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
                  labels, num_labels=2, use_one_hot_embeddings=False)
+    # probabilities,logits,output_layer,output_weights,output_weights = create_model_test(bert_config, is_training, input_ids, input_mask, segment_ids,
+    #              labels, num_labels=2, use_one_hot_embeddings=False)
     sess = tf.Session()
     saver = tf.train.Saver()
     model_file = tf.train.latest_checkpoint(FLAGS.output_dir)
-    if model_file and init!='bert':
+    if model_file:
         print('load model from checkpoint')
         sess.run(tf.global_variables_initializer())
         saver.restore(sess, model_file)
@@ -1015,8 +1053,47 @@ def test0(init='bert',batch_size=32):
          ) = get_assignment_map_from_checkpoint(tvars, FLAGS.init_checkpoint)
         tf.train.init_from_checkpoint(FLAGS.init_checkpoint, assignment_map)
         sess.run(tf.global_variables_initializer())
+    return tokenizer,sess, probabilities,input_ids,segment_ids,input_mask,labels
+def sentEmb_test():
+    FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
+    FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
+    FLAGS.output_dir = "/search/odin/guobk/data/bert_semantic/model4"
+    tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,FLAGS.init_checkpoint)
+    tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
+    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
+    is_training = False
+    max_seq_length = 128
+    input_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_ids')
+    input_mask = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_mask')
+    segment_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='segment_ids')
+    labels = tf.placeholder(tf.int32, shape=[None, ], name='labels')
+    probabilities,logits,output_layer,output_weights,output_bias,sequence_output,embedding,all_layers = create_model_test(bert_config, is_training, input_ids, input_mask, segment_ids,
+                 labels, num_labels=2, use_one_hot_embeddings=False)
+    sess = tf.Session()
+    saver = tf.train.Saver()
+    model_file = tf.train.latest_checkpoint(FLAGS.output_dir)
+    if model_file:
+        print('load model from checkpoint')
+        sess.run(tf.global_variables_initializer())
+        saver.restore(sess, model_file)
+    else:
+        print('load model from bert init')
+        tvars = tf.trainable_variables()
+        (assignment_map, initialized_variable_names, vars_others
+         ) = get_assignment_map_from_checkpoint(tvars, FLAGS.init_checkpoint)
+        tf.train.init_from_checkpoint(FLAGS.init_checkpoint, assignment_map)
+        sess.run(tf.global_variables_initializer())
+    return tokenizer,sess,input_ids,segment_ids,input_mask,labels, probabilities,logits,output_layer,sequence_output,all_layers,output_weights,output_bias,embedding
+def test0(init='bert',batch_size=32):
     import json
-    with open('/search/odin/guobk/data_tmp/D2.json','r') as f:
+    tf.reset_default_graph()
+    label_lists = ['0', '1']
+    max_seq_length = 128
+    # tokenizer,sess, probabilities,input_ids,segment_ids,input_mask,labels = sentEmb()
+    tokenizer,sess,input_ids,segment_ids,input_mask,labels, probabilities,logits,output_layer,sequence_output,all_layers,output_bias,output_weights,embedding = sentEmb_test()
+    ##### test0 #####
+    path_data = '/search/odin/guobk/data_tmp/'
+    with open(os.path.join(path_data,'Q2_0511.json'),'r') as f:
         D2 = json.load(f)
     for i in range(len(D2)):
         inputs = []
@@ -1024,8 +1101,8 @@ def test0(init='bert',batch_size=32):
         masks = []
         Labels = []
         text_a = D2[i]['content']
-        for j in range(len(D2[i]['raw_recall'])):
-            text_b = D2[i]['raw_recall'][j]
+        for j in range(len(D2[i]['con_doc'])):
+            text_b = D2[i]['con_doc'][j]
             example = InputExample(guid='guid', text_a=text_a, text_b=text_b, label='0')
             feature = convert_single_example(10, example, label_lists, max_seq_length, tokenizer)
             inputs.append(feature.input_ids)
@@ -1034,271 +1111,46 @@ def test0(init='bert',batch_size=32):
             Labels.append(0)
         feed_dict = {input_ids: inputs,segment_ids: segments,input_mask: masks,labels:Labels}
         p = sess.run(probabilities,feed_dict = feed_dict)
-    Loss = []
-    Label = []
-    Score = []
-    i0 = []
-    i1 = []
-    seg = []
-    m0 = []
-    m1 = []
-    L = []
+    ##### test 1 #####
+    with open('/search/odin/guobk/data/bert_semantic/finetuneData/train-0.txt','r') as f:
+        S = f.read().strip().split('\n')
+    inputs = []
+    segments = []
+    masks = []
+    Labels = []
+    P = []
     for i in range(len(S)):
-        text_a = S[i][0]
-        text_b = S[i][1]
-        label = int(S[i][2])
+        s = S[i].split('\t')
+        text_a = s[0]
+        text_b = s[1]
         example = InputExample(guid='guid', text_a=text_a, text_b=text_b, label='0')
         feature = convert_single_example(10, example, label_lists, max_seq_length, tokenizer)
-        i0.append(feature.input_ids[0])
-        i1.append(feature.input_ids[1])
-        seg.append(feature.segment_ids)
-        m0.append(feature.input_mask[0])
-        m1.append(feature.input_mask[1])
-        L.append(label)
-        if len(i0)>=batch_size:
-            feed_dict = {input_ids[0]: i0,
-                         input_ids[1]: i1,
-                         segment_ids: seg,
-                         input_mask[0]: m0,
-                         input_mask[1]: m1,
-                         labels:L}
-            loss_, score_ = sess.run([loss,score], feed_dict=feed_dict)
-            if init=='bert':
-                feature0_,feature1_ = sess.run([feature0,feature1],feed_dict=feed_dict)
-                feature0_ = norm(feature0_)
-                feature1_ = norm(feature1_)
-                score_ = [feature0_[i].dot(feature1_[i]) for i in range(len(feature1_))]
-            Loss.append(loss_)
-            Score.extend(score_)
-            Label.extend(L)
-            i0 = []
-            i1 = []
-            seg = []
-            m0 = []
-            m1 = []
-            L = []
-        if i % 100 == 0 and i>0:
-            auc,acc = validation(Score,Label)
-            print(i, len(S), np.mean(Loss),auc,acc)
-def sentEmb(D,mode='qr',init='bert',batch_size=32,initial_checkpoint=None):
-    tf.reset_default_graph()
-    FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
-    FLAGS.task_name = "sort"
-    FLAGS.bert_config_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json"
-    FLAGS.vocab_file = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt"
-    FLAGS.init_checkpoint = "/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_model.ckpt"
-    FLAGS.output_dir = "model/" + FLAGS.task_name
-    label_lists = ['0', '1']
-    tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,FLAGS.init_checkpoint)
-    tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
-    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
-    is_training = False
-    max_seq_length = FLAGS.max_seq_length
-    input_ids = [tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_idsA'),tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_idsB')]
-    input_mask = [tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_maskA'),tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_maskB')]
-    segment_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='segment_ids')
-    labels = tf.placeholder(tf.int32, shape=[None, ], name='labels')
-    loss,score,per_example_loss,feature_qr,feature_dc,feature0,feature1 = create_model(bert_config, is_training, input_ids, input_mask, segment_ids,labels, use_one_hot_embeddings=False)
-    sess = tf.Session()
-    saver = tf.train.Saver()
-    if initial_checkpoint:
-        model_file = initial_checkpoint
-    else:
-        model_file = tf.train.latest_checkpoint(FLAGS.output_dir)
-    if model_file and init!='bert':
-        print('load model from checkpoint')
-        sess.run(tf.global_variables_initializer())
-        saver.restore(sess, model_file)
-    else:
-        print('load model from bert init')
-        tvars = tf.trainable_variables()
-        (assignment_map, initialized_variable_names, vars_others
-         ) = get_assignment_map_from_checkpoint(tvars, FLAGS.init_checkpoint)
-        tf.train.init_from_checkpoint(FLAGS.init_checkpoint, assignment_map)
-        sess.run(tf.global_variables_initializer())
-    f0 = feature0 if init=='bert' else feature_qr
-    f1 = feature1 if init=='bert' else feature_dc
-    sent2vec = f0 if mode=='qr' else f1
-    Y_dc = []
-    i0 = []
-    i1 = []
-    seg = []
-    m0 = []
-    m1 = []
-    for i in range(len(D)):
-        if mode=='qr':
-            text_b = '我'
-            text_a = D[i]
-        else:
-            text_a = '我'
-            text_b = D[i]
-        example = InputExample(guid='guid', text_a=text_a, text_b=text_b, label='0')
-        feature = convert_single_example(10, example, label_lists, max_seq_length, tokenizer)
-        i0.append(feature.input_ids[0])
-        i1.append(feature.input_ids[1])
-        seg.append(feature.segment_ids)
-        m0.append(feature.input_mask[0])
-        m1.append(feature.input_mask[1])
-        if len(i0)>=batch_size:
-            feed_dict = {input_ids[0]: i0,
-                         input_ids[1]: i1,
-                         segment_ids: seg,
-                         input_mask[0]: m0,
-                         input_mask[1]: m1}
-            y_dc = sess.run(sent2vec, feed_dict=feed_dict)
-            Y_dc.extend(y_dc)
-            i0 = []
-            i1 = []
-            seg = []
-            m0 = []
-            m1 = []
-        if i % 100 == 0:
-            print(i, len(D))
-    if len(i0)>0:
-        feed_dict = {input_ids[0]: i0,
-                         input_ids[1]: i1,
-                         segment_ids: seg,
-                         input_mask[0]: m0,
-                         input_mask[1]: m1}
-        y_dc = sess.run(sent2vec, feed_dict=feed_dict)
-        Y_dc.extend(y_dc)
-    return Y_dc
-from sklearn import preprocessing
-def norm(V1):
-    V1 = preprocessing.scale(V1, axis=-1)
-    V1 = V1 / np.sqrt(len(V1[0]))
-    return V1
-def test():
-    FLAGS.data_dir = "/search/odin/guobk/vpa/vpa-studio-research/sort/data"
-    with open(os.path.join(FLAGS.data_dir,'test.txt'),'r') as f:
-        S = f.read().strip().split('\n')
-    Q = [s.split('\t')[0] for s in S]
-    D = [s.split('\t')[1] for s in S]
-    Q = list(set(Q))[:1000]
-    D = list(set(D))
-    Y_qr0 = sentEmb(Q[:1000],mode='qr',init='bert')
-    Y_qr1 = sentEmb(Q[:1000], mode='qr', init='train')
-    Y_dc0 = sentEmb(D, mode='dc', init='bert')
-    Y_dc1 = sentEmb(D, mode='dc', init='train')
-    # np.save('model/sort/Y_qr0.npy',Y_qr0)
-    # np.save('model/sort/Y_qr.npy', Y_qr)
-    # np.save('model/sort/Y_dc0.npy', Y_dc0)
-    # np.save('model/sort/Y_dc.npy', Y_dc)
-
-    vq = norm(Y_qr0[:1000])
-    vd = norm(Y_dc0)
-    s = np.dot(vq,np.transpose(vd))
-    idx0 = np.argsort(-s,axis=-1)
-    vq = norm(Y_qr1[:1000])
-    vd = norm(Y_dc1)
-    s = np.dot(vq, np.transpose(vd))
-    idx = np.argsort(-s, axis=-1)
+        inputs.append(feature.input_ids)
+        segments.append(feature.segment_ids)
+        masks.append(feature.input_mask)
+        Labels.append(0)
+        if len(inputs)>=32:
+            print(i)
+            feed_dict = {input_ids: inputs,segment_ids: segments,input_mask: masks,labels:Labels}
+            p = sess.run(probabilities,feed_dict = feed_dict)
+            p = [t[1] for t in p]
+            P.extend(list(p))
+            inputs = []
+            segments = []
+            masks = []
+            Labels = []
+            break
+    feed_dict = {input_ids: inputs,segment_ids: segments,input_mask: masks,labels:Labels}
+    p = sess.run(probabilities,feed_dict = feed_dict)
+    P.append(p)
     R = []
-    for i in range(1000):
-        r0 = [D[idx0[i][j]] for j in range(10)]
-        r1 = [D[idx[i][j]] for j in range(10)]
-        d = {'input':Q[i],'result0':r0,'result':r1}
-        R.append(d)
-    for r in R:
-        print(r['input'])
-        print('result0:\n' + '\n'.join(r['result0']))
-        print('result1:\n' + '\n'.join(r['result']))
-        print('-----------------')
-    with open('model/sort/test_predict.json','w') as f:
-        json.dump(R,f,ensure_ascii=False,indent=4)
-def demo_retrieval():
-    initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model3/model.ckpt-601000'
-    with open('/search/odin/guobk/data_tmp/D0.json','r') as f:
-        D = json.load(f)
-    with open('/search/odin/guobk/data_tmp/D1.json','r') as f:
-        Q1 = json.load(f)
-    with open('/search/odin/guobk/data_tmp/D2.json','r') as f:
-        Q2 = json.load(f)
-    Sd = [d['content'] for d in D]
-    Sq1 = [d['content'] for d in Q1]
-    Sq2 = [d['content'] for d in Q2]
-    Y_dc = sentEmb(Sd, mode='dc', init='train',initial_checkpoint=initial_checkpoint)
-    Y_qr1 = sentEmb(Sq1,mode='qr',init='train',initial_checkpoint=initial_checkpoint)
-    Y_qr2 = sentEmb(Sq2,mode='qr',init='train',initial_checkpoint=initial_checkpoint)
-    Y_dc = norm(Y_dc)
-    Y_qr1 = norm(Y_qr1)
-    Y_qr2 = norm(Y_qr2)
-    for i in range(len(D)):
-        D[i]['sent2vec'] = list(Y_dc[i])
-    for i in range(len(Q1)):
-        Q1[i]['sent2vec'] = list(Y_qr1[i])
-    for i in range(len(Q2)):
-        Q2[i]['sent2vec'] = list(Y_qr2[i])
+    for i in range(len(P)):
+        R.extend([P[i][j][1] for j in range(len(P[i]))])
+    R0 = [int(s[-1]) for s in S]
 
-    Y_qr1 = sentEmb(Sq1,mode='qr',init='bert',initial_checkpoint=None)
-    Y_qr2 = sentEmb(Sq2,mode='qr',init='bert',initial_checkpoint=None)
-    Y_qr1 = norm(Y_qr1)
-    Y_qr2 = norm(Y_qr2)
-    for i in range(len(Q1)):
-        Q1[i]['sent2vec_init'] = list(Y_qr1[i])
-    for i in range(len(Q2)):
-        Q2[i]['sent2vec_init'] = list(Y_qr2[i])
-    
-    with open('/search/odin/guobk/data_tmp/D0.json','w') as f:
-        json.dump(D,f,ensure_ascii=False,indent=4)
-    with open('/search/odin/guobk/data_tmp/D1.json','w') as f:
-        json.dump(Q1,f,ensure_ascii=False,indent=4)
-    with open('/search/odin/guobk/data_tmp/D2.json','w') as f:
-        json.dump(Q2,f,ensure_ascii=False,indent=4)
-def demo_retrieval_finetune():
-    initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model3_finetune/model.ckpt-34000'
-    with open('/search/odin/guobk/data_tmp/D0.json','r') as f:
-        D = json.load(f)
-    with open('/search/odin/guobk/data_tmp/Q_test.json','r') as f:
-        Q1 = json.load(f)
-    Sd = [d['content'] for d in D]
-    Sq1 = [d['content'] for d in Q1]
-    Y_dc = sentEmb(Sd, mode='dc', init='train',initial_checkpoint=initial_checkpoint)
-    Y_qr1 = sentEmb(Sq1,mode='qr',init='train',initial_checkpoint=initial_checkpoint)
-    Y_dc = norm(Y_dc)
-    Y_qr1 = norm(Y_qr1)
-    for i in range(len(D)):
-        D[i]['sent2vec'] = list(Y_dc[i])
-    for i in range(len(Q1)):
-        Q1[i]['sent2vec'] = list(Y_qr1[i])
-    with open('/search/odin/guobk/data_tmp/D0_finetune.json','w') as f:
-        json.dump(D,f,ensure_ascii=False,indent=4)
-    with open('/search/odin/guobk/data_tmp/Q_test.json','w') as f:
-        json.dump(Q1,f,ensure_ascii=False,indent=4)
-def demo_retrieval_pretrain():
-    initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model1/model.ckpt-806510'
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121.json','r') as f:
-        D = json.load(f)
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121.json','r') as f:
-        Q = json.load(f)
-    Sd = [d['content'] for d in D]
-    Sq = [d['content'] for d in Q]
-    Y_dc = sentEmb(Sd, mode='dc', init='bert',initial_checkpoint=initial_checkpoint)
-    Y_qr = sentEmb(Sq,mode='qr',init='bert',initial_checkpoint=initial_checkpoint)
-    Y_dc = norm(Y_dc)
-    Y_qr = norm(Y_qr)
-    for i in range(len(D)):
-        D[i]['bert-pre'] = list(Y_dc[i])
-    for i in range(len(Q)):
-        Q[i]['bert-pre'] = list(Y_qr[i])
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Docs0121_bertpre_new.json','w') as f:
-        json.dump(D,f,ensure_ascii=False,indent=4)
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries0121_bertpre_new.json','w') as f:
-        json.dump(Q,f,ensure_ascii=False,indent=4)
-def demo_test():
-    initial_checkpoint = 'model/sort/model.ckpt-58000'
-    with open('/search/odin/guobk/vpa/vpa-godText-log/allScene_new/data/tmp.txt','r') as f:
-        S = f.read().strip().split('\n')
-    Y_qr = sentEmb(S[:1000], mode='qr', init='bert', initial_checkpoint=initial_checkpoint)
-    Y_qr = norm(Y_qr)
-    Q = []
-    for i in range(len(Y_qr)):
-        d = {'id':i}
-        d['bert-pre'] = list(Y_qr[i])
-        d['content'] = S[i]
-        Q.append(d)
-    with open('/search/odin/guobk/vpa/vpa-studio-research/retrieval/data/test_s2v/Queries023_bertpre.json', 'w') as f:
-        json.dump(Q, f, ensure_ascii=False, indent=4)
+    feed_dict = {input_ids: inputs,segment_ids: segments,input_mask: masks,labels:Labels}
+    R0 = sess.run([probabilities,logits,output_layer,sequence_output,all_layers],feed_dict=feed_dict)
+    R2 = sess.run([output_weights,output_bias,embedding],feed_dict=feed_dict)
 if __name__ == "__main__":
     # flags.mark_flag_as_required("data_dir")
     # flags.mark_flag_as_required("task_name")
