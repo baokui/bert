@@ -25,8 +25,6 @@ import modeling
 import optimization
 import tokenization
 import tensorflow as tf
-import json
-import numpy as np
 
 flags = tf.flags
 
@@ -69,9 +67,9 @@ flags.DEFINE_integer(
     "Sequences longer than this will be truncated, and sequences shorter "
     "than this will be padded.")
 
-flags.DEFINE_bool("do_train", True, "Whether to run training.")
+flags.DEFINE_bool("do_train", False, "Whether to run training.")
 
-flags.DEFINE_bool("do_eval", True, "Whether to run eval on the dev set.")
+flags.DEFINE_bool("do_eval", False, "Whether to run eval on the dev set.")
 
 flags.DEFINE_bool(
     "do_predict", False,
@@ -83,7 +81,8 @@ flags.DEFINE_integer("eval_batch_size", 8, "Total batch size for eval.")
 
 flags.DEFINE_integer("predict_batch_size", 8, "Total batch size for predict.")
 
-flags.DEFINE_float("learning_rate", 5e-5, "The initial learning rate for Adam.")
+flags.DEFINE_float("learning_rate", 5e-5,
+                   "The initial learning rate for Adam.")
 
 flags.DEFINE_float("num_train_epochs", 3.0,
                    "Total number of training epochs to perform.")
@@ -125,13 +124,14 @@ flags.DEFINE_integer(
     "num_tpu_cores", 8,
     "Only used if `use_tpu` is True. Total number of TPU cores to use.")
 
+flags.DEFINE_integer("nb_classes", 2,
+                     "nb of classses")
 
 class InputExample(object):
   """A single training/test example for simple sequence classification."""
 
   def __init__(self, guid, text_a, text_b=None, label=None):
     """Constructs a InputExample.
-
     Args:
       guid: Unique id for the example.
       text_a: string. The untokenized text of the first sequence. For single
@@ -149,12 +149,10 @@ class InputExample(object):
 
 class PaddingInputExample(object):
   """Fake example so the num input examples is a multiple of the batch size.
-
   When running eval/predict on the TPU, we need to pad the number of examples
   to be a multiple of the batch size, because the TPU requires a fixed batch
   size. The alternative is to drop the last batch, which is bad because it means
   the entire output data won't be generated.
-
   We use this class instead of `None` because treating `None` as padding
   battches could cause silent errors.
   """
@@ -375,57 +373,46 @@ class ColaProcessor(DataProcessor):
           InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
     return examples
 
-class LabelClass(DataProcessor):
-  """Processor for the MRPC data set (GLUE version)."""
-  def _read_txt(self,path):
-    with open(path,'r',encoding='utf-8') as f:
-        lines = f.read().strip().split('\n')
-        lines = [t.split('\t') for t in lines]
-    return lines
-  def get_train_examples(self, data_dir,idx_label):
+class myProcessor(DataProcessor):
+  """Processor for the CoLA data set (GLUE version)."""
+
+  def get_train_examples(self, data_dir):
     """See base class."""
     return self._create_examples(
-        self._read_txt(os.path.join(data_dir, "train.txt")), "train",idx_label)
+        self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
 
-  def get_dev_examples(self, data_dir,idx_label):
+  def get_dev_examples(self, data_dir):
     """See base class."""
     return self._create_examples(
-        self._read_txt(os.path.join(data_dir, "dev.txt")), "dev",idx_label)
+        self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
 
-  def get_test_examples(self, data_dir,idx_label):
+  def get_test_examples(self, data_dir):
     """See base class."""
     return self._create_examples(
-        self._read_txt(os.path.join(data_dir, "test.txt")), "test",idx_label)
+        self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
 
-  def get_labels(self,D_label):
+  def get_labels(self,nb_classes):
     """See base class."""
-    return [str(i) for i in range(len(D_label))]
+    return [str(i) for i in range(nb_classes)]
 
-  def _create_examples(self, lines, set_type, idx_label):
+  def _create_examples(self, lines, set_type):
     """Creates examples for the training and dev sets."""
     examples = []
     for (i, line) in enumerate(lines):
-      if i == 0:
+      # Only the test set has a header
+      if set_type == "test" and i == 0:
         continue
       guid = "%s-%s" % (set_type, i)
-      text_a = tokenization.convert_to_unicode(line[0])
-      text_b = None
       if set_type == "test":
+        text_a = tokenization.convert_to_unicode(line[0])
         label = "0"
       else:
-        label = tokenization.convert_to_unicode(line[idx_label])
+        text_a = tokenization.convert_to_unicode(line[0])
+        label = tokenization.convert_to_unicode(line[1])
       examples.append(
-          InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+          InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
     return examples
-def mytokenize(tokenizer,texts):
-    V = tokenizer.vocab.keys()
-    R = []
-    for t in texts:
-        if t not in V:
-            R.append('[UNK]')
-        else:
-            R.append(t)
-    return R
+
 def convert_single_example(ex_index, example, label_list, max_seq_length,
                            tokenizer):
   """Converts a single `InputExample` into a single `InputFeatures`."""
@@ -442,12 +429,10 @@ def convert_single_example(ex_index, example, label_list, max_seq_length,
   for (i, label) in enumerate(label_list):
     label_map[label] = i
 
-  #tokens_a = tokenizer.tokenize(example.text_a)
-  tokens_a = mytokenize(tokenizer,example.text_a)
+  tokens_a = tokenizer.tokenize(example.text_a)
   tokens_b = None
   if example.text_b:
-    #tokens_b = tokenizer.tokenize(example.text_b)
-    tokens_b = mytokenize(tokenizer, example.text_b)
+    tokens_b = tokenizer.tokenize(example.text_b)
 
   if tokens_b:
     # Modifies `tokens_a` and `tokens_b` in place so that the total
@@ -518,7 +503,8 @@ def convert_single_example(ex_index, example, label_list, max_seq_length,
         [tokenization.printable_text(x) for x in tokens]))
     tf.logging.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
     tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
-    tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
+    tf.logging.info("segment_ids: %s" %
+                    " ".join([str(x) for x in segment_ids]))
     tf.logging.info("label: %s (id = %d)" % (example.label, label_id))
 
   feature = InputFeatures(
@@ -531,7 +517,7 @@ def convert_single_example(ex_index, example, label_list, max_seq_length,
 
 
 def file_based_convert_examples_to_features(
-    examples, label_list, max_seq_length, tokenizer, output_file):
+        examples, label_list, max_seq_length, tokenizer, output_file):
   """Convert a set of `InputExample`s to a TFRecord file."""
 
   writer = tf.python_io.TFRecordWriter(output_file)
@@ -703,7 +689,7 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
     scaffold_fn = None
     if init_checkpoint:
       (assignment_map, initialized_variable_names
-      ) = modeling.get_assignment_map_from_checkpoint(tvars, init_checkpoint)
+       ) = modeling.get_assignment_map_from_checkpoint(tvars, init_checkpoint)
       if use_tpu:
 
         def tpu_scaffold():
@@ -728,13 +714,10 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
       train_op = optimization.create_optimizer(
           total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
 
-      logging_hook = tf.train.LoggingTensorHook({"loss": total_loss}, every_n_iter=10)
-
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
           mode=mode,
           loss=total_loss,
           train_op=train_op,
-          training_hooks=[logging_hook],
           scaffold_fn=scaffold_fn)
     elif mode == tf.estimator.ModeKeys.EVAL:
 
@@ -742,7 +725,8 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
         predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
         accuracy = tf.metrics.accuracy(
             labels=label_ids, predictions=predictions, weights=is_real_example)
-        loss = tf.metrics.mean(values=per_example_loss, weights=is_real_example)
+        loss = tf.metrics.mean(values=per_example_loss,
+                               weights=is_real_example)
         return {
             "eval_accuracy": accuracy,
             "eval_loss": loss,
@@ -838,22 +822,6 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
 
 
 def main(_):
-  import json
-  L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
-  L = FLAGS.task_name
-  if L in L0:
-      path_map = os.path.join(FLAGS.data_dir, 'map_index.json')
-      path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
-      D_map = json.load(open(path_map, 'r'))
-      D_alpha0 = json.load(open(path_alpha, 'r'))
-      D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
-      path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
-      idx0 = L0.index(L)
-      D_alpha = D_alpha[L]
-      idx_label = idx0 + 1
-  elif L=='newlabel':
-      D_alpha = json.load(open(os.path.join(FLAGS.data_dir,'D_label.json'),'r'))
-      idx_label = 1
   tf.logging.set_verbosity(tf.logging.INFO)
 
   processors = {
@@ -861,11 +829,7 @@ def main(_):
       "mnli": MnliProcessor,
       "mrpc": MrpcProcessor,
       "xnli": XnliProcessor,
-      "使用场景p0":LabelClass,
-      "表达对象p0":LabelClass,
-      '表达者性别倾向p0':LabelClass,
-      '文字风格':LabelClass,
-      'newlabel':LabelClass
+      "textClassify":myProcessor,
   }
 
   tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
@@ -891,8 +855,11 @@ def main(_):
     raise ValueError("Task not found: %s" % (task_name))
 
   processor = processors[task_name]()
-
-  label_list = processor.get_labels(D_alpha)
+  
+  if tast_name=='textClassify':
+    label_list = processor.get_labels(FLAGS.nb_classes)
+  else:
+    label_list = processor.get_labels()
 
   tokenizer = tokenization.FullTokenizer(
       vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
@@ -904,6 +871,7 @@ def main(_):
 
   is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
   run_config = tf.contrib.tpu.RunConfig(
+      keep_checkpoint_max=None, # 10
       cluster=tpu_cluster_resolver,
       master=FLAGS.master,
       model_dir=FLAGS.output_dir,
@@ -917,7 +885,7 @@ def main(_):
   num_train_steps = None
   num_warmup_steps = None
   if FLAGS.do_train:
-    train_examples = processor.get_train_examples(FLAGS.data_dir,idx_label=idx_label)
+    train_examples = processor.get_train_examples(FLAGS.data_dir)
     num_train_steps = int(
         len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
     num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
@@ -958,7 +926,7 @@ def main(_):
     estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
 
   if FLAGS.do_eval:
-    eval_examples = processor.get_dev_examples(FLAGS.data_dir,idx_label=idx_label)
+    eval_examples = processor.get_dev_examples(FLAGS.data_dir)
     num_actual_eval_examples = len(eval_examples)
     if FLAGS.use_tpu:
       # TPU requires a fixed batch size for all batches, therefore the number
@@ -1004,7 +972,7 @@ def main(_):
         writer.write("%s = %s\n" % (key, str(result[key])))
 
   if FLAGS.do_predict:
-    predict_examples = processor.get_test_examples(FLAGS.data_dir,idx_label=idx_label)
+    predict_examples = processor.get_test_examples(FLAGS.data_dir)
     num_actual_predict_examples = len(predict_examples)
     if FLAGS.use_tpu:
       # TPU requires a fixed batch size for all batches, therefore the number
@@ -1048,192 +1016,7 @@ def main(_):
         writer.write(output_line)
         num_written_lines += 1
     assert num_written_lines == num_actual_predict_examples
-class bert_cls:
-    #task_name = 'newlabel'
-    #path_vocab = '/search/odin/guobk/data/labels/data_new/vocab.txt'
-    #path_config = '/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json'
-    #path_model = '/search/odin/guobk/data/labels/data_new/model/'
-    #max_seq_length = 128
-    #path_data = '/search/odin/guobk/data/labels/data_new/'
-    def __init__(self,task_name,path_data,path_vocab,path_config,path_model,init_checkpoint=None,max_seq_length=128):
-        #os.environ['CUDA_VISIBLE_DEVICES'] = gpu
-        L0 = ['使用场景P0', '表达对象P0', '表达者性别倾向P0', '文字风格']
-        L = task_name
-        if L in L0:
-            path_map = os.path.join(FLAGS.data_dir, 'map_index.json')
-            path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
-            D_map = json.load(open(path_map, 'r'))
-            D_alpha0 = json.load(open(path_alpha, 'r'))
-            D_alpha = {k: [D_alpha0[k][kk] for kk in D_map[k]] for k in D_map}
-            path_alpha = os.path.join(FLAGS.data_dir, 'label_alpha.json')
-            idx0 = L0.index(L)
-            D_alpha = D_alpha[L]
-            idx_label = idx0 + 1
-        elif L == 'newlabel':
-            self.D_alpha = json.load(open(os.path.join(path_data, 'D_label.json'), 'r'))
-            idx_label = 1
-        tf.logging.set_verbosity(tf.logging.INFO)
-        processors = {
-            "cola": ColaProcessor,
-            "mnli": MnliProcessor,
-            "mrpc": MrpcProcessor,
-            "xnli": XnliProcessor,
-            "使用场景p0": LabelClass,
-            "表达对象p0": LabelClass,
-            '表达者性别倾向p0': LabelClass,
-            '文字风格': LabelClass,
-            'newlabel': LabelClass
-        }
-        bert_config = modeling.BertConfig.from_json_file(path_config)
-        processor = processors[task_name.lower()]()
-        self.max_seq_length = max_seq_length
-        self.tokenizer = tokenization.FullTokenizer(
-            vocab_file=path_vocab, do_lower_case=True)
-        tf.reset_default_graph()
-        self.input_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_ids')
-        self.input_mask = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='input_mask')
-        self.segment_ids = tf.placeholder(tf.int32, shape=[None, self.max_seq_length], name='segment_ids')
-        self.label_list = processor.get_labels(self.D_alpha)
-        self.labels = tf.placeholder(tf.int32, shape=[None, ], name="label_ids")
-        self.num_labels = len(self.label_list)
-        is_training = False
-        (loss, per_example_loss, logits, self.probabilities) = create_model(bert_config, is_training, self.input_ids, self.input_mask, self.segment_ids,
-                 self.labels, self.num_labels, use_one_hot_embeddings=False)
-        self.saver = tf.train.Saver(max_to_keep=None)
-        self.session = tf.Session()
-        self.session.run(tf.global_variables_initializer())
-        if not init_checkpoint:
-            init_checkpoint = tf.train.latest_checkpoint(path_model)
-        self.saver.restore(self.session, init_checkpoint)
-    def predict(self,inputStr):
-        example = InputExample(guid='guid', text_a=inputStr, label='0')
-        feature = convert_single_example(10, example, self.label_list, self.max_seq_length, self.tokenizer)
-        X_input_ids = feature.input_ids
-        X_segment_ids = feature.segment_ids
-        X_input_mask = feature.input_mask
-        feed_dict = {self.input_ids: [X_input_ids], self.segment_ids: [X_segment_ids],
-                     self.input_mask: [X_input_mask]}
-        y = self.session.run(self.probabilities, feed_dict=feed_dict)[0]
-        p = np.argmax(y)
-        return p,y
-def test():
-    # tf.reset_default_graph()
-    # input_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_ids')
-    # input_mask = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='input_mask')
-    # segment_ids = tf.placeholder(tf.int32, shape=[None, max_seq_length], name='segment_ids')
-    # label_list = processor.get_labels(D_alpha)
-    # labels = tf.placeholder(tf.int32, shape=[None, ], name="label_ids")
-    # num_labels = len(label_list)
-    # is_training = False
-    # (loss, per_example_loss, logits, probabilities) = create_model(bert_config, is_training,input_ids,
-    #                                                                     input_mask, segment_ids,
-    #                                                                     labels, num_labels,
-    #                                                                     use_one_hot_embeddings=False)
-    # saver = tf.train.Saver(max_to_keep=None)
-    # session = tf.Session()
-    # session.run(tf.global_variables_initializer())
-    # init_checkpoint = tf.train.latest_checkpoint(path_model)
-    # saver.restore(session, init_checkpoint)
-    task_name = 'newlabel'
-    path_vocab = '/search/odin/guobk/data/labels/data_new/vocab.txt'
-    path_config = '/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json'
-    path_model = '/search/odin/guobk/data/labels/data_new/model/'
-    max_seq_length = 128
-    path_data = '/search/odin/guobk/data/labels/data_new/'
-    init_checkpoint = '/search/odin/guobk/data/labels/data_new/model/model.ckpt-3000'
-    init_checkpoint = None
 
-    path_vocab = '/search/odin/guobk/data/labels/data_new/vocab.txt'
-    path_config = '/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json'
-    path_model = '/search/odin/guobk/data/labels/data_new/model32/'
-    max_seq_length = 32
-    path_data = '/search/odin/guobk/data/labels/data_new/'
-    init_checkpoint = '/search/odin/guobk/data/labels/data_new/model32/model.ckpt-3000'
-    init_checkpoint = None
-
-    task_name = 'newlabel'
-    path_vocab = '/search/odin/guobk/data/labels/data_new/model_pretrain/vocab.txt'
-    path_config = '/search/odin/guobk/data/labels/data_new/model_pretrain/bert_config.json'
-    path_model = '/search/odin/guobk/data/labels/data_new/model_pretrain/finetune'
-    max_seq_length = 32
-    path_data = '/search/odin/guobk/data/labels/data_new/'
-    init_checkpoint = '/search/odin/guobk/data/labels/data_new/model_pretrain/finetune/model.ckpt-3000'
-
-    model = bert_cls(task_name,path_data,path_vocab,path_config,path_model,init_checkpoint,max_seq_length)
-    D_alpha = model.D_alpha
-    #json.load(open(os.path.join(path_data, 'D_label.json'), 'r'))
-    D_alpha_inv = {str(D_alpha[k]):k for k in D_alpha}
-    with open(os.path.join(path_data,'dev.txt'),'r') as f:
-        S = f.read().strip().split('\n')
-    S = [s.split('\t') for s in S]
-    R0 = []
-    R1 = []
-    for i in range(len(S)):
-        inputStr = S[i][0]
-        p,y = model.predict(inputStr)
-        R0.append([inputStr,S[i][1],str(p)])
-        R1.append([inputStr,D_alpha_inv[S[i][1]],D_alpha_inv[str(p)]]+[D_alpha_inv[str(j)]+'/%0.4f'%y[j] for j in range(len(D_alpha))])
-        if i%100==0:
-            print(i,len(S))
-            print('acc=%0.2f'%(len([r for r in R0 if r[1]==r[2]])/len(R0)))
-    R2 = [r for r in R1 if r[1]!=r[2]]
-    X = []
-    for i in range(7):
-        X.append([r for r in R0 if r[1]==str(i)])
-    X1 = [['\t'.join([t[0],D_alpha_inv[t[1]],D_alpha_inv[t[2]]]) for t in x] for x in X]
-    for i in range(len(X1)):
-        with open(os.path.join(path_data,'result_dev_{}.txt'.format(D_alpha_inv[str(i)])),'w') as f:
-            f.write('\n'.join(X1[i]))
-    acc = []
-    pres = []
-    rec = []
-    D = {}
-    for i in range(7):
-        a = len([t for t in R0 if t[1]==str(i) and t[2]==str(i) or t[1]!=str(i) and t[2]!=str(i)])/len(R0)
-        p = len([t for t in R0 if t[1]==str(i) and t[2]==str(i)])/(0.00001+len([t for t in R0 if t[2]==str(i)]))
-        r = len([t for t in R0 if t[1]==str(i) and t[2]==str(i)])/(0.00001+len([t for t in R0 if t[1]==str(i)]))
-        D[D_alpha_inv[str(i)]] = {'acc':'%0.4f'%a,'pres':'%0.4f'%p,'rec':'%0.4f'%r}
-    with open(os.path.join(path_data,'result_dev.json'),'w') as f:
-        json.dump(D,f,ensure_ascii=False,indent=4)
-
-    with open(os.path.join(path_data,'test.txt'),'r') as f:
-        S = f.read().strip().split('\n')
-    R1 = []
-    for i in range(len(S)):
-        inputStr = S[i]
-        p,y = model.predict(inputStr)
-        R1.append([inputStr,str(p)])
-        if i%100==0:
-            print(i,len(S))
-    X1 = [r[0]+'\t'+D_alpha_inv[r[1]] for r in R1]
-    with open(os.path.join(path_data, 'result_test.txt'), 'w') as f:
-        f.write('\n'.join(X1))
-
-    import json
-    with open(os.path.join(path_data,'predict-dev.json'),'r') as f:
-        D = json.load(f)
-    R = {}
-    for k in D:
-        r = []
-        for i in range(len(D[k])):
-            inputStr = D[k][i]
-            p,y = model.predict(inputStr)
-            r.append(D_alpha_inv[str(p)])
-        R[k] = r
-    with open(os.path.join(path_data,'predict-dev-result.json'),'w') as f:
-        json.dump(R,f,ensure_ascii=False,indent=4)
-    with open(os.path.join(path_data,'predict-test.json'),'r') as f:
-        D = json.load(f)
-    R = {}
-    for k in D:
-        r = []
-        for i in range(len(D[k])):
-            inputStr = D[k][i]
-            p,y = model.predict(inputStr)
-            r.append(D_alpha_inv[str(p)])
-        R[k] = r
-    with open(os.path.join(path_data, 'predict-test-result.json'), 'w') as f:
-        json.dump(R, f, ensure_ascii=False, indent=4)
 
 if __name__ == "__main__":
   flags.mark_flag_as_required("data_dir")
