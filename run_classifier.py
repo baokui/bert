@@ -126,7 +126,8 @@ flags.DEFINE_integer(
 
 flags.DEFINE_integer("nb_classes", 2,
                      "nb of classses")
-
+flags.DEFINE_integer("nb_examples", -1,
+                     "nb of examples")
 class InputExample(object):
   """A single training/test example for simple sequence classification."""
 
@@ -885,10 +886,16 @@ def main(_):
   num_train_steps = None
   num_warmup_steps = None
   if FLAGS.do_train:
-    train_examples = processor.get_train_examples(FLAGS.data_dir)
-    num_train_steps = int(
+    if FLAGS.nb_examples>0:
+      num_train_steps = int(
+        FLAGS.nb_examples / FLAGS.train_batch_size * FLAGS.num_train_epochs)
+      num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
+    else:
+      train_examples = processor.get_train_examples(FLAGS.data_dir)
+      num_train_steps = int(
         len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
-    num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
+      num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
+      FLAGS.nb_examples = len(train_examples)
 
   model_fn = model_fn_builder(
       bert_config=bert_config,
@@ -912,10 +919,11 @@ def main(_):
 
   if FLAGS.do_train:
     train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
-    file_based_convert_examples_to_features(
+    if FLAGS.nb_examples<=0:
+      file_based_convert_examples_to_features(
         train_examples, label_list, FLAGS.max_seq_length, tokenizer, train_file)
     tf.logging.info("***** Running training *****")
-    tf.logging.info("  Num examples = %d", len(train_examples))
+    tf.logging.info("  Num examples = %d", FLAGS.nb_examples)
     tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
     tf.logging.info("  Num steps = %d", num_train_steps)
     train_input_fn = file_based_input_fn_builder(
