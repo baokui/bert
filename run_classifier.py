@@ -856,7 +856,7 @@ def main(_):
 
   processor = processors[task_name]()
   
-  if tast_name=='textclassify':
+  if task_name=='textclassify':
     label_list = processor.get_labels(FLAGS.nb_classes)
   else:
     label_list = processor.get_labels()
