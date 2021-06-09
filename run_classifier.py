@@ -829,7 +829,7 @@ def main(_):
       "mnli": MnliProcessor,
       "mrpc": MrpcProcessor,
       "xnli": XnliProcessor,
-      "textClassify":myProcessor,
+      "textclassify":myProcessor,
   }
 
   tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
@@ -856,7 +856,7 @@ def main(_):
 
   processor = processors[task_name]()
   
-  if tast_name=='textClassify':
+  if tast_name=='textclassify':
     label_list = processor.get_labels(FLAGS.nb_classes)
   else:
     label_list = processor.get_labels()
