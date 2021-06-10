@@ -152,10 +152,10 @@ export CUDA_VISIBLE_DEVICES=5
 nohup python -u run_classifier0.py \
     --output_dir=$output_dir \
     --data_dir=$data_dir \
-    --train_file=
+    --train_file=$train_file \
     --bert_config_file=/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_config.json \
     --vocab_file=/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/vocab.txt \
-    --init_checkpoint=/search/odin/guobk/vpa/roberta_zh/model/roberta_zh_l12/bert_model.ckpt \
+    --init_checkpoint=/search/odin/guobk/data/bert_semantic/model5/model.ckpt-228000 \
     --train_batch_size=32 \
     --max_seq_length=128 \
     --do_train=True \
@@ -163,3 +163,26 @@ nohup python -u run_classifier0.py \
     --nb_train_examples=4000000 \
     --num_train_epochs=3 >> log/bertSentvec-new-single-model5.log 2>&1 &
 
+
+
+
+#####################
+# 新数据0422-0518
+# data-prepro
+mkdir /search/odin/guobk/data/bert_semantic/finetuneData_tfrecord
+mkdir log
+for((idx=0;idx<8;idx++))
+do
+output_dir=/search/odin/guobk/data/bert_semantic/finetuneData_tfrecord/train-$idx.tf_record
+data_dir=/search/odin/guobk/data/bert_semantic/finetuneData_new/train-$idx.txt
+export CUDA_VISIBLE_DEVICES=0
+nohup python -u bertSentvec_datapro.py \
+    --output_dir=$output_dir \
+    --data_dir=$data_dir \
+    --bert_config_file=/search/odin/guobk/data/model/roberta_zh_l12/bert_config.json \
+    --vocab_file=/search/odin/guobk/data/model/roberta_zh_l12/vocab.txt \
+    --init_checkpoint=/search/odin/guobk/data/model/roberta_zh_l12/bert_model.ckpt \
+    --train_batch_size=32 \
+    --max_seq_length=128 \
+    --num_train_epochs=3 >> log/bertSentvec-datapro-finetune-$idx.log 2>&1 &
+done

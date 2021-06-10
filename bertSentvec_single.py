@@ -1128,10 +1128,11 @@ def test0(init='bert',batch_size=32):
         inputs.append(feature.input_ids)
         segments.append(feature.segment_ids)
         masks.append(feature.input_mask)
-        Labels.append(0)
+        Labels.append(int(s[-1]))
         if len(inputs)>=32:
             print(i)
             feed_dict = {input_ids: inputs,segment_ids: segments,input_mask: masks,labels:Labels}
+            break
             p = sess.run(probabilities,feed_dict = feed_dict)
             p = [t[1] for t in p]
             P.extend(list(p))
@@ -1151,6 +1152,7 @@ def test0(init='bert',batch_size=32):
     feed_dict = {input_ids: inputs,segment_ids: segments,input_mask: masks,labels:Labels}
     R0 = sess.run([probabilities,logits,output_layer,sequence_output,all_layers],feed_dict=feed_dict)
     R2 = sess.run([output_weights,output_bias,embedding],feed_dict=feed_dict)
+    R1 = sess.run([log_probs,one_hot_labels,per_example_loss,loss],feed_dict=feed_dict)
 if __name__ == "__main__":
     # flags.mark_flag_as_required("data_dir")
     # flags.mark_flag_as_required("task_name")

@@ -1212,10 +1212,10 @@ def demo_retrieval():
     with open('/search/odin/guobk/data_tmp/D2.json','w') as f:
         json.dump(Q2,f,ensure_ascii=False,indent=4)
 def demo_retrieval_finetune():
-    initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model3_finetune/model.ckpt-34000'
+    initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model3_finetune_new/model.ckpt-506000'
     with open('/search/odin/guobk/data_tmp/D0.json','r') as f:
         D = json.load(f)
-    with open('/search/odin/guobk/data_tmp/Q_test.json','r') as f:
+    with open('/search/odin/guobk/data_tmp/Q2_0511.json','r') as f:
         Q1 = json.load(f)
     Sd = [d['content'] for d in D]
     Sq1 = [d['content'] for d in Q1]
@@ -1227,9 +1227,9 @@ def demo_retrieval_finetune():
         D[i]['sent2vec'] = list(Y_dc[i])
     for i in range(len(Q1)):
         Q1[i]['sent2vec'] = list(Y_qr1[i])
-    with open('/search/odin/guobk/data_tmp/D0_finetune.json','w') as f:
+    with open('/search/odin/guobk/data_tmp/D0_finetune-506000.json','w') as f:
         json.dump(D,f,ensure_ascii=False,indent=4)
-    with open('/search/odin/guobk/data_tmp/Q_test.json','w') as f:
+    with open('/search/odin/guobk/data_tmp/Q2_0511_506000.json','w') as f:
         json.dump(Q1,f,ensure_ascii=False,indent=4)
 def demo_retrieval_pretrain():
     initial_checkpoint = '/search/odin/guobk/data/bert_semantic/model1/model.ckpt-806510'
