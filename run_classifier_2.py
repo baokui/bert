@@ -885,11 +885,13 @@ def main(_):
   train_examples = None
   num_train_steps = None
   num_warmup_steps = None
+  tfrecord_created = False
   if FLAGS.do_train:
     if FLAGS.nb_examples>0:
       num_train_steps = int(
         FLAGS.nb_examples / FLAGS.train_batch_size * FLAGS.num_train_epochs)
       num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
+      tfrecord_created = True
     else:
       train_examples = processor.get_train_examples(FLAGS.data_dir)
       num_train_steps = int(
@@ -919,8 +921,7 @@ def main(_):
 
   if FLAGS.do_train:
     train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
-    if FLAGS.nb_examples<=0:
-      print('TEST:',train_examples[0])
+    if not tfrecord_created:
       file_based_convert_examples_to_features(
         train_examples, label_list, FLAGS.max_seq_length, tokenizer, train_file)
     tf.logging.info("***** Running training *****")
