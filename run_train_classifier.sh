@@ -255,22 +255,18 @@ nohup python -u run_classifier.py \
     --vocab_file=$BERT_BASE_DIR/vocab.txt \
     --output_dir=$output_dir \
     --train_batch_size=32 \
-    --init_checkpoint=/search/odin/guobk/data/AiWriter/model/ckpt/model.ckpt-100000 \
+    --init_checkpoint=/search/odin/guobk/data/AiWriter/model/ckpt/model.ckpt-120000 \
     --save_checkpoints_steps=10000 \
     --max_seq_length=128 \
     --do_predict=True \
     --do_train=True \
     --do_eval=True \
     --nb_classes=4 \
-    --nb_examples=942234 \
-    --num_train_epochs=5 >> log/DataQuality_model.log 2>&1 &
+    --num_train_epochs=5 >> log/DataQuality_model-finetune.log 2>&1 &
 
-for((i=0;i<5;i++))
-do_eval
-export CUDA_VISIBLE_DEVICES=$i
+export CUDA_VISIBLE_DEVICES=5
 task_name=textClassify
-output_dir=/search/odin/guobk/data/AiWriter/model/multi-data-$i/
-mkdir -p $output_dir
+output_dir=/search/odin/guobk/data/AiWriter/model/ckpt/
 BERT_BASE_DIR=/search/odin/guobk/data/AiWriter/model/ckpt
 nohup python -u run_classifier.py \
     --data_dir=/search/odin/guobk/data/AiWriter/Content/DataQuality/data_new \
@@ -279,7 +275,7 @@ nohup python -u run_classifier.py \
     --vocab_file=/search/odin/guobk/data/model/chinese_L-12_H-768_A-12/vocab.txt \
     --output_dir=$output_dir \
     --train_batch_size=8 \
-    --init_checkpoint=/search/odin/guobk/data/AiWriter/model/ckpt/model.ckpt-100000 \
+    --init_checkpoint=/search/odin/guobk/data/AiWriter/model/ckpt/model.ckpt-120000 \
     --save_checkpoints_steps=10000 \
     --max_seq_length=128 \
     --do_predict=True \
@@ -288,6 +284,31 @@ nohup python -u run_classifier.py \
     --nb_classes=4 \
     --nb_examples=942234 \
     --num_train_epochs=5 >> log/DataQuality_model-test.log 2>&1 &
+
+for((i=0;i<5;i++))
+do
+export CUDA_VISIBLE_DEVICES=$i
+task_name=textClassify
+output_dir=/search/odin/guobk/data/AiWriter/Content/DataQuality/result-$i/
+data_dir=/search/odin/guobk/data/AiWriter/Content/DataQuality/all-$i/
+mkdir -p $output_dir
+BERT_BASE_DIR=/search/odin/guobk/data/AiWriter/model/ckpt
+nohup python -u run_classifier.py \
+    --data_dir=$data_dir \
+    --bert_config_file=/search/odin/guobk/data/model/chinese_L-12_H-768_A-12/bert_config.json \
+    --task_name=textClassify \
+    --vocab_file=/search/odin/guobk/data/model/chinese_L-12_H-768_A-12/vocab.txt \
+    --output_dir=$output_dir \
+    --train_batch_size=8 \
+    --init_checkpoint=/search/odin/guobk/data/AiWriter/model/ckpt/model.ckpt-147224 \
+    --save_checkpoints_steps=10000 \
+    --max_seq_length=128 \
+    --do_predict=True \
+    --do_train=False \
+    --do_eval=False \
+    --nb_classes=4 \
+    --nb_examples=942234 \
+    --num_train_epochs=5 >> log/DataQuality_model-test-all-$i.log 2>&1 &
 done
 
 #################################
@@ -312,3 +333,24 @@ nohup python -u run_classifier_2.py \
     --do_eval=True \
     --nb_classes=2 \
     --num_train_epochs=5 >> log/DataQuality_model-2.log 2>&1 &
+
+export CUDA_VISIBLE_DEVICES=5
+task_name=textClassify
+output_dir=/search/odin/guobk/data/AiWriter/model/ckpt_2/
+mkdir -p $output_dir
+BERT_BASE_DIR=/search/odin/guobk/data/model/chinese_L-12_H-768_A-12
+nohup python -u run_classifier_2.py \
+    --data_dir=/search/odin/guobk/data/AiWriter/Content/DataQuality/data_new \
+    --bert_config_file=$BERT_BASE_DIR/bert_config.json \
+    --task_name=$task_name \
+    --vocab_file=$BERT_BASE_DIR/vocab.txt \
+    --output_dir=$output_dir \
+    --train_batch_size=32 \
+    --init_checkpoint=/search/odin/guobk/data/AiWriter/model/ckpt_2/model.ckpt-100000 \
+    --save_checkpoints_steps=10000 \
+    --max_seq_length=128 \
+    --do_predict=True \
+    --do_train=False \
+    --do_eval=True \
+    --nb_classes=2 \
+    --num_train_epochs=5 >> log/DataQuality_model-2-test.log 2>&1 &
