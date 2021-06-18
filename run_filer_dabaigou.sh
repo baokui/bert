@@ -5,15 +5,15 @@ do
     else
     i=$j
     fi
-    path_source="/search/odin/guobk/data/dabaigou/000$i/part-00001"
-    path_target="/search/odin/guobk/data/dabaigou/filtered/000$i.txt"
+    path_source="/search/odin/guobk/data/dabaigou/00$i/part-00001"
+    path_target="/search/odin/guobk/data/dabaigou/filtered/00$i.txt"
     b=$(( $j % 7 ))
     gpu=$(( $b + 1 ))
     if [ "$b" == 6 ];then
-    nohup python -u filter_dabaigou.py $path_source $path_target $gpu >> log/fiter-dabaigou-0$i 2>&1 
+    nohup python -u filter_dabaigou.py $path_source $path_target $gpu >> log/fiter-dabaigou-$i 2>&1 
     sleep 5m
     else
-    nohup python -u filter_dabaigou.py $path_source $path_target $gpu >> log/fiter-dabaigou-0$i 2>&1 &
+    nohup python -u filter_dabaigou.py $path_source $path_target $gpu >> log/fiter-dabaigou-$i 2>&1 &
     fi
 done
 # gpu=2
