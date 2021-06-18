@@ -25,6 +25,7 @@ import modeling
 import optimization
 import tokenization
 import tensorflow as tf
+import numpy as np
 
 flags = tf.flags
 
@@ -835,6 +836,8 @@ class bert_cls:
         vocab_file = os.path.join(path_model,'vocab.txt')
         ckpt_file = os.path.join(path_model,'ckpt')
         self.max_seq_length = max_seq_length
+        self.num_labels = num_labels
+        self.label_lists = [str(i) for i in range(num_labels)]
         is_training = False
         bert_config = modeling.BertConfig.from_json_file(bert_config_file)
         self.tokenizer = tokenization.FullTokenizer(
@@ -849,10 +852,10 @@ class bert_cls:
         self.saver = tf.train.Saver(max_to_keep=None)
         self.session = tf.Session()
         self.session.run(tf.global_variables_initializer())
-        init_checkpoint = tf.train.latest_checkpoint(ckpt)
+        init_checkpoint = tf.train.latest_checkpoint(ckpt_file)
         self.saver.restore(self.session, init_checkpoint)
     def predict(self,inputStr):
-        example = InputExample(guid='guid', text_a=inputStr, label=['0' for _ in range(len(self.Num_labels))])
+        example = InputExample(guid='guid', text_a=inputStr, label='0')
         feature = convert_single_example(10, example, self.label_lists, self.max_seq_length, self.tokenizer)
         X_input_ids = feature.input_ids
         X_segment_ids = feature.segment_ids
@@ -860,15 +863,89 @@ class bert_cls:
         feed_dict = {self.input_ids: [X_input_ids], self.segment_ids: [X_segment_ids],
                      self.input_mask: [X_input_mask]}
         p = self.session.run(self.probabilities, feed_dict=feed_dict)
-        
         return p
+    def predict_batch(self,S, batch_size = 64):
+        P0 = []
+        X_input_ids = []
+        X_segment_ids = []
+        X_input_mask = []
+        for i in range(len(S)):
+            inputStr = S[i]
+            example = InputExample(guid='guid', text_a=inputStr, label='0')
+            feature = convert_single_example(10, example, self.label_lists, self.max_seq_length, self.tokenizer)
+            input_ids = feature.input_ids
+            segment_ids = feature.segment_ids
+            input_mask = feature.input_mask
+            X_input_ids.append(input_ids)
+            X_segment_ids.append(segment_ids)
+            X_input_mask.append(input_mask)
+            if len(X_input_ids)>=batch_size:
+                feed_dict = {self.input_ids: X_input_ids, self.segment_ids: X_segment_ids,
+                     self.input_mask: X_input_mask}
+                p = self.session.run(self.probabilities, feed_dict=feed_dict)
+                if len(P0)==0:
+                    P0 = p
+                else:
+                    P0 = np.concatenate((P0, p),axis=0)
+                X_input_ids = []
+                X_segment_ids = []
+                X_input_mask = []
+        if len(X_input_ids)>0:
+            feed_dict = {self.input_ids: X_input_ids, self.segment_ids: X_segment_ids,
+                     self.input_mask: X_input_mask}
+            p = self.session.run(self.probabilities, feed_dict=feed_dict)
+            if len(P0)==0:
+                P0 = p
+            else:
+                P0 = np.concatenate((P0, p),axis=0)
+        return P0
+def getContent():
+    '''
+    SQL数据库
+    host: mt.tugele.rds.sogou
+    port: 3306
+    user: tugele_new
+    password: tUgele2017OOT
+
+    表名字 ns_flx_wisdom_words_new
+    :return:
+    '''
+    import pymysql
+    conn = pymysql.connect(
+        host='mt.tugele.rds.sogou',
+        user='tugele_new',
+        password='tUgele2017OOT',
+        charset='utf8',
+        port  = 3306,
+        # autocommit=True,    # 如果插入数据，， 是否自动提交? 和conn.commit()功能一致。
+    )
+        # ****python, 必须有一个游标对象， 用来给数据库发送sql语句， 并执行的.
+        # 2. 创建游标对象，
+    cur = conn.cursor()
+    # 4). **************************数据库查询*****************************
+    # sqli = 'SELECT * FROM tugele.ns_flx_wisdom_words_new'
+    sqli = 'SELECT a.id,a.content FROM (tugele.ns_flx_wisdom_words_new a) WHERE a.status=1 and a.isDeleted=0'
+    cur.execute('SET NAMES utf8mb4')
+    cur.execute("SET CHARACTER SET utf8mb4")
+    cur.execute("SET character_set_connection=utf8mb4")
+    result = cur.execute(sqli)  # 默认不返回查询结果集， 返回数据记录数。
+    info = cur.fetchall()  # 3). 获取所有的查询结果
+    # print(info)
+    # print(len(info))
+    # 4. 关闭游标
+    cur.close()
+    # 5. 关闭连接
+    conn.close()
+    S = [[str(info[i][0]),info[i][1]] for i in range(len(info))]
+    return S
 def demo():
     os.environ['CUDA_VISIBLE_DEVICES'] = '7'
     path_model = "/search/odin/guobk/data/AiWriter/model/text_quality_multi/"
     num_labels = 4
     max_seq_length = 128
     model = bert_cls(path_model, num_labels, max_seq_length)
-
+    S = getContent()
+    p = model.predict_batch([inputStr,inputStr])
 if __name__ == "__main__":
     # flags.mark_flag_as_required("data_dir")
     # flags.mark_flag_as_required("task_name")
