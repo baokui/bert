@@ -18,7 +18,7 @@ while id0*Batch<len(C):
     S = [c.split('\t')[1] for c in C[id0*Batch:(id0+1)*Batch]]
     p = model.predict_batch(S, log=False)
     y = np.argmax(p,axis=1)
-    R = [[S[i],'%0.4f'%p[i][0]] for i in range(len(S)) if y[i]==0]
+    R = ['\t'.join([S[i],'%0.4f'%p[i][0]]) for i in range(len(S)) if y[i]==0]
     f_w.write('\n'.join(R)+'\n')
     n+=len(R)
     print(id0,int(len(C)/Batch),n)
