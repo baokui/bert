@@ -864,11 +864,13 @@ class bert_cls:
                      self.input_mask: [X_input_mask]}
         p = self.session.run(self.probabilities, feed_dict=feed_dict)
         return p
-    def predict_batch(self,S, batch_size = 64):
+    def predict_batch(self,S, batch_size = 64, log = False):
         P0 = []
         X_input_ids = []
         X_segment_ids = []
         X_input_mask = []
+        N = int(len(S)/batch_size)+1
+        n = 0
         for i in range(len(S)):
             inputStr = S[i]
             example = InputExample(guid='guid', text_a=inputStr, label='0')
@@ -890,6 +892,9 @@ class bert_cls:
                 X_input_ids = []
                 X_segment_ids = []
                 X_input_mask = []
+                if log:
+                    print('predict {}%'.format('%0.4f'%(100.0*n/N)))
+                n+=1
         if len(X_input_ids)>0:
             feed_dict = {self.input_ids: X_input_ids, self.segment_ids: X_segment_ids,
                      self.input_mask: X_input_mask}
@@ -898,6 +903,7 @@ class bert_cls:
                 P0 = p
             else:
                 P0 = np.concatenate((P0, p),axis=0)
+        print('predict 100%')
         return P0
 def getContent():
     '''
@@ -940,12 +946,18 @@ def getContent():
     return S
 def demo():
     os.environ['CUDA_VISIBLE_DEVICES'] = '7'
+    S = getContent()
+    C = [s[1] for s in S]
     path_model = "/search/odin/guobk/data/AiWriter/model/text_quality_multi/"
     num_labels = 4
     max_seq_length = 128
     model = bert_cls(path_model, num_labels, max_seq_length)
-    S = getContent()
-    p = model.predict_batch([inputStr,inputStr])
+    p = model.predict_batch(C)
+    y = np.argmax(p,axis=1)
+    S1 = [[S[i],y[i]] for i in range(len(y)) if y[i]!=0]
+    R = [S[i]+['%0.4f'%p[i][j] for j in range(4)] for i in range(len(S))]
+    with open('/search/odin/guobk/data/vpa-studio-research/content.txt','w') as f:
+        f.write('\n'.join(['\t'.join(r) for r in R]))
 if __name__ == "__main__":
     # flags.mark_flag_as_required("data_dir")
     # flags.mark_flag_as_required("task_name")
